@@ -30,11 +30,13 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
     }, [todasEmpresas, userId, userRole, empresasPermitidas]);
 
     useEffect(() => {
+        console.log('[Empresa] Verificando empresas para user:', userId, 'authLoading:', authLoading);
         // Se auth ainda está carregando, aguarda
         if (authLoading) return;
 
         // Sem user = sem fetch
         if (!userId) {
+            console.log('[Empresa] Sem usuário logado, encerrando loading');
             setLoading(false);
             return;
         }
@@ -42,6 +44,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
         let mounted = true;
 
         const fetchEmpresas = async () => {
+            console.log('[Empresa] Iniciando fetch de empresas...');
             setLoading(true);
             try {
                 const { data, error } = await supabase
@@ -52,6 +55,7 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
                 if (!mounted) return;
 
                 if (!error && data) {
+                    console.log('[Empresa] Empresas carregadas:', data.length);
                     setTodasEmpresas(data);
 
                     // Definir empresa inicial (prioriza filtradas)
@@ -59,23 +63,30 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
                         ? data.filter(e => empresasPermitidas?.includes(e.id))
                         : data;
 
+                    console.log('[Empresa] Empresas permitidas:', filtered.length);
                     const savedId = localStorage.getItem('axen_empresa_id');
                     const initial = filtered.find(e => e.id === savedId) || filtered[0];
-                    if (initial) setEmpresa(initial);
+                    if (initial) {
+                        console.log('[Empresa] Empresa selecionada:', initial.nome);
+                        setEmpresa(initial);
+                    }
                 } else if (error) {
-                    console.error('Erro ao carregar empresas:', error);
+                    console.error('[Empresa] Erro no Supabase:', error);
                 }
             } catch (err) {
-                console.error('Exceção ao carregar empresas:', err);
+                console.error('[Empresa] Exceção:', err);
             } finally {
-                if (mounted) setLoading(false);
+                if (mounted) {
+                    console.log('[Empresa] Finalizando loading');
+                    setLoading(false);
+                }
             }
         };
 
         fetchEmpresas();
 
         return () => { mounted = false; };
-    }, [userId, authLoading]); // Deps primitivas — sem loop
+    }, [userId, authLoading, userRole, empresasPermitidas]); // Deps primitivas — sem loop
 
     useEffect(() => {
         if (empresa) {

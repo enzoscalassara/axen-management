@@ -46,12 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         let mounted = true;
 
         const initializeAuth = async () => {
+            console.log('[Auth] Inicializando session...');
             try {
                 const { data: { session } } = await supabase.auth.getSession();
+                console.log('[Auth] Session encontrada:', !!session);
 
                 if (session?.user && mounted) {
+                    console.log('[Auth] Buscando perfil para:', session.user.id);
                     const profile = await fetchUserProfile(session.user.id, session.user.email!);
                     if (mounted) {
+                        console.log('[Auth] Perfil carregado:', !!profile);
                         setUser(profile);
                         if (session.access_token) {
                             localStorage.setItem('axen_token', session.access_token);
@@ -59,19 +63,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     }
                 }
             } catch (err) {
-                console.error('Erro na inicialização do Auth:', err);
+                console.error('[Auth] Erro na inicialização:', err);
             } finally {
-                if (mounted) setLoading(false);
+                if (mounted) {
+                    console.log('[Auth] Finalizando loading inicial');
+                    setLoading(false);
+                }
             }
         };
 
         initializeAuth();
 
-        /**
-         * Listener para mudanças de auth (login, logout, token refresh).
-         * NÃO chama setLoading(true) para evitar flash de loading em token refresh.
-         */
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            console.log('[Auth] onAuthStateChange:', event, !!session);
             if (!mounted) return;
 
             if (session?.user) {
@@ -93,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             mounted = false;
             subscription.unsubscribe();
         };
-    }, [fetchUserProfile]);
+    }, []); // Estável - sem loops de dependência
 
     const login = useCallback(async (email: string, senha: string) => {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha });
