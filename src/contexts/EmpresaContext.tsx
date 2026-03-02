@@ -54,9 +54,13 @@ export function EmpresaProvider({ children }: { children: ReactNode }) {
                 if (!error && data) {
                     setTodasEmpresas(data);
 
-                    // Definir empresa inicial
+                    // Definir empresa inicial (prioriza filtradas)
+                    const filtered = userId && userRole !== 'admin'
+                        ? data.filter(e => empresasPermitidas?.includes(e.id))
+                        : data;
+
                     const savedId = localStorage.getItem('axen_empresa_id');
-                    const initial = data.find(e => e.id === savedId) || data[0];
+                    const initial = filtered.find(e => e.id === savedId) || filtered[0];
                     if (initial) setEmpresa(initial);
                 } else if (error) {
                     console.error('Erro ao carregar empresas:', error);

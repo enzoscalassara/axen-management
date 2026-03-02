@@ -5,9 +5,9 @@ import { useEmpresa } from '../../contexts/EmpresaContext';
 
 /** Layout principal com sidebar fixa e conteúdo scrollável */
 export default function MainLayout() {
-    const { empresa, loading } = useEmpresa();
+    const { loading } = useEmpresa();
 
-    if (loading || !empresa) {
+    if (loading) {
         return (
             <div className="min-h-screen bg-dark-950 flex items-center justify-center">
                 <div className="w-8 h-8 border-2 border-axen-500/30 border-t-axen-500 rounded-full animate-spin" />
