@@ -26,12 +26,25 @@ async def get_current_user_token(authorization: str = Header(None)) -> str:
 async def get_current_user(token: str = Depends(get_current_user_token)) -> dict:
     """
     Valida o token JWT e retorna dados do usuário.
-    Em produção, o Supabase RLS cuida da segurança se usarmos o cliente com o token.
+    Usa o Supabase para obter o UID real.
     """
-    # Mock por enquanto — em produção, pode-se usar supabase.auth.get_user(token)
-    return {
-        "id": "1",
-        "nome": "Enzo Oliveira",
-        "email": "enzo@axenhub.com",
-        "empresas_permitidas": ["emp-1", "emp-2"],
-    }
+    from db.supabase_client import get_supabase_client
+    
+    supabase = get_supabase_client(token)
+    try:
+        # Busca o usuário autenticado via Supabase Auth
+        res = supabase.auth.get_user(token)
+        if not res.user:
+            raise HTTPException(status_code=401, detail="Usuário não encontrado no Supabase Auth")
+        
+        # Opcional: Buscar perfil estendido na tabela `usuarios`
+        # profiles = supabase.table("usuarios").select("*").eq("id", res.user.id).execute()
+        
+        return {
+            "id": res.user.id,
+            "email": res.user.email,
+            "metadata": res.user.user_metadata,
+        }
+    except Exception as e:
+        print(f"Erro ao validar token no Supabase: {e}")
+        raise HTTPException(status_code=401, detail="Token inválido ou expirado")

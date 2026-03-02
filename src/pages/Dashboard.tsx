@@ -21,6 +21,7 @@ import {
     Clock,
     ArrowUpRight,
     ArrowDownRight,
+    Building,
 }
     from 'lucide-react';
 import { useEmpresa } from '../contexts/EmpresaContext';
@@ -144,10 +145,28 @@ export default function Dashboard() {
         );
     }
 
+    if (!empresa) {
+        return (
+            <div className="p-12 text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-dark-800 mb-4">
+                    <Building className="w-8 h-8 text-dark-400" />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Nenhuma empresa selecionada</h3>
+                <p className="text-dark-300 max-w-sm mx-auto">
+                    Não conseguimos identificar sua empresa principal. Verifique se você possui permissões de acesso ou selecione uma empresa no menu lateral.
+                </p>
+            </div>
+        );
+    }
+
     if (error || !data) {
         return (
-            <div className="p-8 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500">
-                Erro ao carregar dados do dashboard. Verifique sua conexão.
+            <div className="p-8 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 flex flex-col items-center gap-4">
+                <AlertTriangle className="w-8 h-8" />
+                <div className="text-center">
+                    <p className="font-bold">Erro ao carregar dados do dashboard</p>
+                    <p className="text-sm opacity-80">Verifique se existe o seu perfil de usuário na tabela 'usuarios' do Supabase.</p>
+                </div>
             </div>
         );
     }
