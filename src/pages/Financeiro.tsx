@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -16,11 +16,14 @@ import {
     Trash2,
     Check,
     AlertTriangle,
+    FilterX,
 } from 'lucide-react';
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { formatCurrency, parseCurrencyToNumber, formatCurrencyInput } from '../utils/formatters';
+import { formatDateBR } from '../utils/dateUtils';
 import type { Movimentacao, Reembolso } from '../types';
 import { supabase } from '../services/supabaseClient';
+import { useMembrosDaEmpresa } from '../hooks/useMembrosDaEmpresa';
 
 type Tab = 'movimentacoes' | 'reembolsos';
 
@@ -40,9 +43,16 @@ export default function Financeiro() {
     const defaultFormMov = {
         tipo: 'entrada' as 'entrada' | 'saida', valor: 0, data: new Date().toISOString().split('T')[0],
         data_prevista: '', data_realizada: '',
-        categoria: 'consultoria', status: 'confirmado' as 'confirmado' | 'previsto', descricao: '',
-        origem_cliente_id: '' as string, destino_usuario_id: '' as string, destino_tipo: 'terceiros',
+        categoria: '', status: 'confirmado' as 'confirmado' | 'previsto', descricao: '',
+        origem_cliente_id: '' as string, destino_usuario_id: '' as string, destino_fornecedor_id: '' as string, destino_tipo: 'terceiros',
     };
+
+    /** Filtros avançados */
+    const [filtroDataPrevMes, setFiltroDataPrevMes] = useState('');
+    const [filtroDataRealMes, setFiltroDataRealMes] = useState('');
+    const [filtroClienteFornecedorIds, setFiltroClienteFornecedorIds] = useState<string[]>([]);
+    const [showCatSuggestions, setShowCatSuggestions] = useState(false);
+    const catInputRef = useRef<HTMLInputElement>(null);
 
     const [formMov, setFormMov] = useState(defaultFormMov);
 
@@ -100,25 +110,75 @@ export default function Financeiro() {
         enabled: !!empresa?.id,
     });
 
-    /** Usuarios da empresa para dropdown de Destino */
-    const { data: usuarios = [] } = useQuery({
-        queryKey: ['usuarios-empresa', empresa?.id],
+    /** Membros da empresa para dropdowns de destino e responsável */
+    const { data: membros = [] } = useMembrosDaEmpresa(empresa?.id);
+    const [selectedReembResponsaveis, setSelectedReembResponsaveis] = useState<string[]>([]);
+
+    /** Fornecedores da empresa para dropdown de Destino */
+    const { data: fornecedores = [] } = useQuery({
+        queryKey: ['fornecedores-dropdown', empresa?.id],
         queryFn: async () => {
             const { data, error } = await supabase
-                .from('usuarios')
+                .from('fornecedores')
                 .select('id, nome')
-                .contains('empresas_permitidas', [empresa!.id]);
+                .eq('empresa_id', empresa!.id)
+                .eq('status', 'ativo')
+                .order('nome');
             if (error) throw error;
             return data ?? [];
         },
         enabled: !!empresa?.id,
     });
 
+    /** Categorias existentes (distinct) para autocomplete */
+    const categoriasExistentes = useMemo(() => {
+        const cats = movimentacoes.map((m: any) => m.categoria).filter(Boolean);
+        return [...new Set(cats)].sort();
+    }, [movimentacoes]);
+
+    /** Helper para resolver nome de cliente/fornecedor */
+    const resolverNomeDestino = useCallback((mov: any) => {
+        if (mov.origem_cliente_id) {
+            const c = clientes.find((c: any) => c.id === mov.origem_cliente_id);
+            return c ? c.nome : null;
+        }
+        if (mov.destino_fornecedor_id) {
+            const f = fornecedores.find((f: any) => f.id === mov.destino_fornecedor_id);
+            return f ? f.nome : null;
+        }
+        if (mov.destino_usuario_id) {
+            const m = membros.find(m => m.id === mov.destino_usuario_id);
+            return m ? m.displayName : null;
+        }
+        if (mov.destino_tipo === 'terceiros') return 'Terceiros';
+        return null;
+    }, [clientes, fornecedores, membros]);
+
     const movsFiltradas = useMemo(() => {
         let filtered = movimentacoes;
         if (filtroCategoria !== 'todos') filtered = filtered.filter((m: any) => m.categoria === filtroCategoria);
+        if (filtroDataPrevMes) {
+            filtered = filtered.filter((m: any) => m.data_prevista && m.data_prevista.startsWith(filtroDataPrevMes));
+        }
+        if (filtroDataRealMes) {
+            filtered = filtered.filter((m: any) => m.data_realizada && m.data_realizada.startsWith(filtroDataRealMes));
+        }
+        if (filtroClienteFornecedorIds.length > 0) {
+            filtered = filtered.filter((m: any) =>
+                filtroClienteFornecedorIds.includes(m.origem_cliente_id) ||
+                filtroClienteFornecedorIds.includes(m.destino_fornecedor_id) ||
+                filtroClienteFornecedorIds.includes(m.destino_usuario_id)
+            );
+        }
         return filtered;
-    }, [movimentacoes, filtroCategoria]);
+    }, [movimentacoes, filtroCategoria, filtroDataPrevMes, filtroDataRealMes, filtroClienteFornecedorIds]);
+
+    const hasAdvancedFilters = filtroDataPrevMes || filtroDataRealMes || filtroClienteFornecedorIds.length > 0;
+    const clearAdvancedFilters = () => {
+        setFiltroDataPrevMes('');
+        setFiltroDataRealMes('');
+        setFiltroClienteFornecedorIds([]);
+    };
 
     const stats = useMemo(() => {
         const entradas = movimentacoes.filter((m: any) => m.tipo === 'entrada' && m.status === 'confirmado')
@@ -145,6 +205,7 @@ export default function Financeiro() {
             descricao: mov.descricao || '',
             origem_cliente_id: mov.origem_cliente_id || '',
             destino_usuario_id: mov.destino_usuario_id || '',
+            destino_fornecedor_id: mov.destino_fornecedor_id || '',
             destino_tipo: mov.destino_tipo || 'terceiros',
         });
         setShowModal(true);
@@ -158,8 +219,19 @@ export default function Financeiro() {
             status: r.status,
             descricao: r.descricao || '',
         });
+        const names = (r.responsavel || '').split(', ').map((s: string) => s.trim()).filter(Boolean);
+        setSelectedReembResponsaveis(membros.filter(m => names.includes(m.displayName)).map(m => m.id));
         setShowReembolsoModal(true);
-    }, []);
+    }, [membros]);
+
+    const toggleReembResponsavel = (userId: string) => {
+        setSelectedReembResponsaveis(prev => {
+            const next = prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId];
+            const names = next.map(id => membros.find(m => m.id === id)?.displayName).filter(Boolean).join(', ');
+            setFormReemb(f => ({ ...f, responsavel: names }));
+            return next;
+        });
+    };
 
     const handleSaveMov = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -176,6 +248,7 @@ export default function Financeiro() {
             descricao: formMov.descricao,
             origem_cliente_id: formMov.tipo === 'entrada' && formMov.origem_cliente_id ? formMov.origem_cliente_id : null,
             destino_usuario_id: formMov.tipo === 'saida' && formMov.destino_tipo === 'usuario' && formMov.destino_usuario_id ? formMov.destino_usuario_id : null,
+            destino_fornecedor_id: formMov.tipo === 'saida' && formMov.destino_tipo === 'fornecedor' && formMov.destino_fornecedor_id ? formMov.destino_fornecedor_id : null,
             destino_tipo: formMov.tipo === 'saida' ? formMov.destino_tipo : null,
         };
 
@@ -192,7 +265,7 @@ export default function Financeiro() {
             setFormMov(defaultFormMov);
             await queryClient.invalidateQueries();
         } catch (err) {
-            console.error('Erro ao salvar movimentação:', err);
+            // Erro tratado na UI
             alert('Falha ao salvar movimentação.');
         }
     };
@@ -214,7 +287,7 @@ export default function Financeiro() {
             setFormReemb(defaultFormReemb);
             queryClient.invalidateQueries({ queryKey: ['reembolsos'] });
         } catch (err) {
-            console.error('Erro ao salvar reembolso:', err);
+            // Erro tratado na UI
             alert('Falha ao salvar reembolso.');
         }
     };
@@ -223,7 +296,7 @@ export default function Financeiro() {
         if (!showDeleteConfirm) return;
         const table = showDeleteConfirm.type === 'mov' ? 'movimentacoes' : 'reembolsos';
         const { error } = await supabase.from(table).delete().eq('id', showDeleteConfirm.id);
-        if (error) { console.error('Erro ao excluir:', error); alert('Falha ao excluir.'); }
+        if (error) { alert('Falha ao excluir.'); }
         setShowDeleteConfirm(null);
         setShowModal(false);
         setShowReembolsoModal(false);
@@ -237,7 +310,7 @@ export default function Financeiro() {
         const table = type === 'mov' ? 'movimentacoes' : 'reembolsos';
         const newStatus = type === 'mov' ? 'confirmado' : 'pago';
         const { error } = await supabase.from(table).update({ status: newStatus }).eq('id', id);
-        if (error) { console.error('Erro na aprovação:', error); return; }
+        if (error) return;
         await queryClient.invalidateQueries();
     };
 
@@ -325,6 +398,27 @@ export default function Financeiro() {
                 </div>
             </div>
 
+            {/* Filtros Avançados */}
+            {activeTab === 'movimentacoes' && (
+                <div className="flex flex-wrap items-end gap-3">
+                    <div className="space-y-1">
+                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Prevista (mês)</label>
+                        <input type="month" value={filtroDataPrevMes} onChange={(e) => setFiltroDataPrevMes(e.target.value)}
+                            className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50" />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Realizada (mês)</label>
+                        <input type="month" value={filtroDataRealMes} onChange={(e) => setFiltroDataRealMes(e.target.value)}
+                            className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50" />
+                    </div>
+                    {hasAdvancedFilters && (
+                        <button onClick={clearAdvancedFilters} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 bg-red-500/10 rounded-lg transition-colors">
+                            <FilterX className="w-3.5 h-3.5" /> Limpar filtros
+                        </button>
+                    )}
+                </div>
+            )}
+
             {/* Listagem Movimentações */}
             {activeTab === 'movimentacoes' ? (
                 <div className="card overflow-hidden">
@@ -335,36 +429,40 @@ export default function Financeiro() {
                             <table className="w-full text-left border-collapse">
                                 <thead>
                                     <tr className="bg-dark-900/50 border-b border-dark-800">
-                                        <th className="px-6 py-4 text-xs font-semibold text-dark-300 uppercase tracking-wider">Data</th>
-                                        <th className="px-6 py-4 text-xs font-semibold text-dark-300 uppercase tracking-wider">Descrição</th>
-                                        <th className="px-6 py-4 text-xs font-semibold text-dark-300 uppercase tracking-wider">Categoria</th>
-                                        <th className="px-6 py-4 text-xs font-semibold text-dark-300 uppercase tracking-wider">Valor</th>
-                                        <th className="px-6 py-4 text-xs font-semibold text-dark-300 uppercase tracking-wider">Status</th>
-                                        <th className="px-6 py-4 text-xs font-semibold text-dark-300 uppercase tracking-wider text-right">Ações</th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-dark-300 uppercase tracking-wider">Data Prev.</th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-dark-300 uppercase tracking-wider">Data Real.</th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-dark-300 uppercase tracking-wider">Cliente / Fornecedor</th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-dark-300 uppercase tracking-wider">Categoria</th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-dark-300 uppercase tracking-wider">Valor</th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-dark-300 uppercase tracking-wider">Status</th>
+                                        <th className="px-5 py-3 text-xs font-semibold text-dark-300 uppercase tracking-wider text-right">Ações</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-dark-800">
                                     {movsFiltradas.map((mov: any) => (
                                         <tr key={mov.id} className="hover:bg-dark-800/30 transition-colors group">
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-dark-200">
-                                                {new Date(mov.data).toLocaleDateString('pt-BR')}
+                                            <td className="px-5 py-3 whitespace-nowrap text-sm text-dark-200">
+                                                {formatDateBR(mov.data_prevista)}
                                             </td>
-                                            <td className="px-6 py-4 text-sm font-medium text-white">
-                                                {mov.descricao || 'Sem descrição'}
+                                            <td className="px-5 py-3 whitespace-nowrap text-sm text-dark-200">
+                                                {formatDateBR(mov.data_realizada)}
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
+                                            <td className="px-5 py-3 text-sm text-white">
+                                                {resolverNomeDestino(mov) || <span className="text-dark-400">—</span>}
+                                            </td>
+                                            <td className="px-5 py-3 whitespace-nowrap">
                                                 <span className="px-2 py-1 bg-dark-800 text-dark-200 rounded text-xs">{mov.categoria}</span>
                                             </td>
-                                            <td className={`px-6 py-4 whitespace-nowrap text-sm font-bold ${mov.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            <td className={`px-5 py-3 whitespace-nowrap text-sm font-bold ${mov.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}`}>
                                                 {mov.tipo === 'entrada' ? '+' : '-'} {formatCurrency(mov.valor)}
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
+                                            <td className="px-5 py-3 whitespace-nowrap">
                                                 <div className={`flex items-center gap-1.5 text-xs font-medium ${mov.status === 'confirmado' ? 'text-emerald-400' : 'text-amber-400'}`}>
                                                     {mov.status === 'confirmado' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
                                                     {mov.status === 'confirmado' ? 'Confirmado' : 'Previsto'}
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 text-right">
+                                            <td className="px-5 py-3 text-right">
                                                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {mov.status === 'previsto' && (
                                                         <button onClick={() => handleApprove('mov', mov.id)} className="p-1.5 rounded-lg hover:bg-emerald-500/10 text-dark-400 hover:text-emerald-400 transition-colors" title="Aprovar">
@@ -475,11 +573,23 @@ export default function Financeiro() {
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
+                                    <div className="space-y-1.5 relative">
                                         <label className="text-xs font-medium text-dark-300 uppercase">Categoria</label>
-                                        <input type="text" value={formMov.categoria}
-                                            onChange={(e) => setFormMov({ ...formMov, categoria: e.target.value })}
-                                            className="w-full text-sm" placeholder="consultoria" />
+                                        <input type="text" ref={catInputRef} value={formMov.categoria}
+                                            onChange={(e) => { setFormMov({ ...formMov, categoria: e.target.value }); setShowCatSuggestions(true); }}
+                                            onFocus={() => setShowCatSuggestions(true)}
+                                            onBlur={() => setTimeout(() => setShowCatSuggestions(false), 200)}
+                                            className="w-full text-sm" placeholder="Digite a categoria..." />
+                                        {showCatSuggestions && formMov.categoria && (
+                                            <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-dark-800 border border-dark-700 rounded-lg max-h-32 overflow-y-auto shadow-xl">
+                                                {categoriasExistentes.filter(c => c.toLowerCase().includes(formMov.categoria.toLowerCase())).map(c => (
+                                                    <button key={c} type="button" className="w-full text-left px-3 py-2 text-sm text-dark-200 hover:text-white hover:bg-dark-700 transition-colors"
+                                                        onMouseDown={() => { setFormMov(f => ({ ...f, categoria: c })); setShowCatSuggestions(false); }}>
+                                                        {c}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-medium text-dark-300 uppercase">Status</label>
@@ -505,14 +615,21 @@ export default function Financeiro() {
                                 {formMov.tipo === 'saida' && (
                                     <div className="space-y-1.5">
                                         <label className="text-xs font-medium text-dark-300 uppercase">Destino</label>
-                                        <select value={formMov.destino_tipo} onChange={(e) => setFormMov({ ...formMov, destino_tipo: e.target.value, destino_usuario_id: '' })} className="w-full text-sm mb-2">
+                                        <select value={formMov.destino_tipo} onChange={(e) => setFormMov({ ...formMov, destino_tipo: e.target.value, destino_usuario_id: '', destino_fornecedor_id: '' })} className="w-full text-sm mb-2">
                                             <option value="terceiros">Terceiros</option>
-                                            <option value="usuario">Usuário da empresa</option>
+                                            <option value="usuario">Membro da empresa</option>
+                                            <option value="fornecedor">Fornecedor</option>
                                         </select>
                                         {formMov.destino_tipo === 'usuario' && (
                                             <select value={formMov.destino_usuario_id} onChange={(e) => setFormMov({ ...formMov, destino_usuario_id: e.target.value })} className="w-full text-sm">
-                                                <option value="">Selecione o usuário</option>
-                                                {usuarios.map((u: any) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+                                                <option value="">Selecione o membro</option>
+                                                {membros.map(m => <option key={m.id} value={m.id}>{m.displayName}</option>)}
+                                            </select>
+                                        )}
+                                        {formMov.destino_tipo === 'fornecedor' && (
+                                            <select value={formMov.destino_fornecedor_id} onChange={(e) => setFormMov({ ...formMov, destino_fornecedor_id: e.target.value })} className="w-full text-sm">
+                                                <option value="">Selecione o fornecedor</option>
+                                                {fornecedores.map((f: any) => <option key={f.id} value={f.id}>{f.nome}</option>)}
                                             </select>
                                         )}
                                     </div>
@@ -557,10 +674,27 @@ export default function Financeiro() {
                                         className="w-full text-sm" placeholder="0,00" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <label className="text-xs font-medium text-dark-300 uppercase">Responsável</label>
-                                    <input type="text" required value={formReemb.responsavel}
-                                        onChange={(e) => setFormReemb({ ...formReemb, responsavel: e.target.value })}
-                                        className="w-full text-sm" placeholder="Seu nome..." />
+                                    <label className="text-xs font-medium text-dark-300 uppercase">Responsáveis</label>
+                                    <div className="flex flex-wrap gap-1.5 mb-2">
+                                        {selectedReembResponsaveis.map(uid => {
+                                            const m = membros.find(m => m.id === uid);
+                                            return m ? (
+                                                <span key={uid} className="inline-flex items-center gap-1 px-2 py-1 bg-axen-500/15 text-axen-400 text-xs rounded-full">
+                                                    {m.displayName}
+                                                    <button type="button" onClick={() => toggleReembResponsavel(uid)} className="hover:text-white"><X className="w-3 h-3" /></button>
+                                                </span>
+                                            ) : null;
+                                        })}
+                                    </div>
+                                    <div className="max-h-32 overflow-y-auto border border-dark-700 rounded-lg">
+                                        {membros.map(m => (
+                                            <label key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-800/50 cursor-pointer text-sm text-dark-200 hover:text-white transition-colors">
+                                                <input type="checkbox" checked={selectedReembResponsaveis.includes(m.id)} onChange={() => toggleReembResponsavel(m.id)}
+                                                    className="w-3.5 h-3.5 rounded border-dark-500 text-axen-500 focus:ring-axen-500/20" />
+                                                {m.displayName}
+                                            </label>
+                                        ))}
+                                    </div>
                                 </div>
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-medium text-dark-300 uppercase">Descrição/Motivo</label>

@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../services/supabaseClient';
 import { formatCurrency } from '../utils/formatters';
 import api from '../services/api';
+import { useMembrosDaEmpresa } from '../hooks/useMembrosDaEmpresa';
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
     lead: { label: 'Lead', color: 'text-amber-400', bg: 'bg-amber-500/10' },
@@ -62,19 +63,8 @@ export default function Clientes() {
         enabled: !!selectedCliente?.id && activeTab === 'financeiro',
     });
 
-    /** Usuarios da empresa para multi-select de responsáveis */
-    const { data: usuarios = [] } = useQuery({
-        queryKey: ['usuarios-empresa', empresa?.id],
-        queryFn: async () => {
-            const { data, error } = await supabase
-                .from('usuarios')
-                .select('id, nome')
-                .contains('empresas_permitidas', [empresa!.id]);
-            if (error) throw error;
-            return data ?? [];
-        },
-        enabled: !!empresa?.id,
-    });
+    /** Membros da empresa para multi-select de responsáveis */
+    const { data: membros = [] } = useMembrosDaEmpresa(empresa?.id);
 
     const segmentos = useMemo(
         () => [...new Set(clientes.map((c: any) => c.segmento || 'Não Informado'))],
@@ -160,7 +150,7 @@ export default function Clientes() {
             setSelectedResponsaveis([]);
             queryClient.invalidateQueries({ queryKey: ['clientes'] });
         } catch (err) {
-            console.error('Erro ao salvar cliente:', err);
+            // Erro tratado na UI
             alert('Falha ao salvar cliente.');
         }
     };
@@ -168,7 +158,7 @@ export default function Clientes() {
     const handleDelete = async () => {
         if (!showDeleteConfirm) return;
         const { error } = await supabase.from('clientes').delete().eq('id', showDeleteConfirm);
-        if (error) { console.error('Erro ao excluir:', error); alert('Falha ao excluir.'); }
+        if (error) { alert('Falha ao excluir.'); }
         setShowDeleteConfirm(null);
         setShowModal(false);
         setEditing(null);
@@ -236,8 +226,7 @@ export default function Clientes() {
                                             <label className="text-xs text-dark-300 uppercase tracking-wider">Responsáveis</label>
                                             <div className="flex flex-wrap gap-1 mt-1">
                                                 {selectedCliente.responsaveis.map((uid: string) => {
-                                                    const u = usuarios.find((u: any) => u.id === uid);
-                                                    return <span key={uid} className="px-2 py-1 bg-axen-500/10 text-axen-400 text-xs rounded-full">{u?.nome || uid}</span>;
+                                                    return <span key={uid} className="px-2 py-1 bg-axen-500/10 text-axen-400 text-xs rounded-full">{membros.find(m => m.id === uid)?.displayName || uid}</span>;
                                                 })}
                                             </div>
                                         </div>
@@ -431,21 +420,21 @@ export default function Clientes() {
                                     <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Responsáveis</label>
                                     <div className="flex flex-wrap gap-1.5 mb-2">
                                         {selectedResponsaveis.map(uid => {
-                                            const u = usuarios.find((u: any) => u.id === uid);
-                                            return u ? (
+                                            const m = membros.find(m => m.id === uid);
+                                            return m ? (
                                                 <span key={uid} className="inline-flex items-center gap-1 px-2 py-1 bg-axen-500/15 text-axen-400 text-xs rounded-full">
-                                                    {u.nome}
+                                                    {m.displayName}
                                                     <button type="button" onClick={() => toggleResponsavel(uid)} className="hover:text-white"><X className="w-3 h-3" /></button>
                                                 </span>
                                             ) : null;
                                         })}
                                     </div>
                                     <div className="max-h-32 overflow-y-auto border border-dark-700 rounded-lg">
-                                        {usuarios.map((u: any) => (
-                                            <label key={u.id} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-800/50 cursor-pointer text-sm text-dark-200 hover:text-white transition-colors">
-                                                <input type="checkbox" checked={selectedResponsaveis.includes(u.id)} onChange={() => toggleResponsavel(u.id)}
+                                        {membros.map(m => (
+                                            <label key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-800/50 cursor-pointer text-sm text-dark-200 hover:text-white transition-colors">
+                                                <input type="checkbox" checked={selectedResponsaveis.includes(m.id)} onChange={() => toggleResponsavel(m.id)}
                                                     className="w-3.5 h-3.5 rounded border-dark-500 text-axen-500 focus:ring-axen-500/20" />
-                                                {u.nome}
+                                                {m.displayName}
                                             </label>
                                         ))}
                                     </div>

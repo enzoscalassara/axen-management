@@ -9,6 +9,7 @@ import Metas from './pages/Metas';
 import Atividades from './pages/Atividades';
 import Clientes from './pages/Clientes';
 import Membros from './pages/Membros';
+import Fornecedores from './pages/Fornecedores';
 
 import { Outlet } from 'react-router-dom';
 
@@ -55,6 +56,7 @@ function App() {
                   <Route path="/metas" element={<Metas />} />
                   <Route path="/atividades" element={<Atividades />} />
                   <Route path="/clientes" element={<Clientes />} />
+                  <Route path="/fornecedores" element={<Fornecedores />} />
                   <Route path="/membros" element={<Membros />} />
                 </Route>
               </Route>

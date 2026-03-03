@@ -6,6 +6,7 @@ import {
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../services/supabaseClient';
+import { useMembrosDaEmpresa } from '../hooks/useMembrosDaEmpresa';
 import { formatCurrencyInput, parseCurrencyToNumber, formatCurrency } from '../utils/formatters';
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
@@ -36,6 +37,8 @@ export default function Metas() {
     const [editing, setEditing] = useState<any | null>(null);
     const [formMeta, setFormMeta] = useState(defaultForm);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+    const [selectedResponsaveis, setSelectedResponsaveis] = useState<string[]>([]);
+    const { data: membros = [] } = useMembrosDaEmpresa(empresa?.id);
 
     const { data: metas = [], isLoading } = useQuery({
         queryKey: ['metas', empresa?.id],
@@ -73,6 +76,7 @@ export default function Metas() {
     const openNew = () => {
         setEditing(null);
         setFormMeta(defaultForm);
+        setSelectedResponsaveis([]);
         setShowModal(true);
     };
 
@@ -91,8 +95,19 @@ export default function Metas() {
             subtipo: meta.subtipo || '',
             concluida: meta.concluida || false,
         });
+        const names = (meta.responsavel || '').split(', ').map((s: string) => s.trim()).filter(Boolean);
+        setSelectedResponsaveis(membros.filter(m => names.includes(m.displayName)).map(m => m.id));
         setShowModal(true);
-    }, []);
+    }, [membros]);
+
+    const toggleResponsavel = (userId: string) => {
+        setSelectedResponsaveis(prev => {
+            const next = prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId];
+            const names = next.map(id => membros.find(m => m.id === id)?.displayName).filter(Boolean).join(', ');
+            setFormMeta(f => ({ ...f, responsavel: names }));
+            return next;
+        });
+    };
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -123,7 +138,7 @@ export default function Metas() {
             setFormMeta(defaultForm);
             queryClient.invalidateQueries({ queryKey: ['metas'] });
         } catch (err) {
-            console.error('Erro ao salvar meta:', err);
+            // Erro tratado na UI
             alert('Falha ao salvar meta.');
         }
     };
@@ -131,7 +146,7 @@ export default function Metas() {
     const handleDelete = async () => {
         if (!showDeleteConfirm) return;
         const { error } = await supabase.from('metas').delete().eq('id', showDeleteConfirm);
-        if (error) { console.error('Erro ao excluir meta:', error); alert('Falha ao excluir.'); }
+        if (error) { alert('Falha ao excluir.'); }
         setShowDeleteConfirm(null);
         setShowModal(false);
         setEditing(null);
@@ -329,8 +344,27 @@ export default function Metas() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Responsável</label>
-                                    <input type="text" placeholder="Nome do responsável" value={formMeta.responsavel} onChange={(e) => setFormMeta({ ...formMeta, responsavel: e.target.value })} className="w-full text-sm" />
+                                    <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Responsáveis</label>
+                                    <div className="flex flex-wrap gap-1.5 mb-2">
+                                        {selectedResponsaveis.map(uid => {
+                                            const m = membros.find(m => m.id === uid);
+                                            return m ? (
+                                                <span key={uid} className="inline-flex items-center gap-1 px-2 py-1 bg-axen-500/15 text-axen-400 text-xs rounded-full">
+                                                    {m.displayName}
+                                                    <button type="button" onClick={() => toggleResponsavel(uid)} className="hover:text-white"><X className="w-3 h-3" /></button>
+                                                </span>
+                                            ) : null;
+                                        })}
+                                    </div>
+                                    <div className="max-h-32 overflow-y-auto border border-dark-700 rounded-lg">
+                                        {membros.map(m => (
+                                            <label key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-800/50 cursor-pointer text-sm text-dark-200 hover:text-white transition-colors">
+                                                <input type="checkbox" checked={selectedResponsaveis.includes(m.id)} onChange={() => toggleResponsavel(m.id)}
+                                                    className="w-3.5 h-3.5 rounded border-dark-500 text-axen-500 focus:ring-axen-500/20" />
+                                                {m.displayName}
+                                            </label>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 {editing && (

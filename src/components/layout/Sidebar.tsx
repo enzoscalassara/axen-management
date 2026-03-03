@@ -7,6 +7,7 @@ import {
     KanbanSquare,
     Users,
     UserCircle,
+    Package,
     Zap,
 } from 'lucide-react';
 
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
     { to: '/metas', icon: Target, label: 'Metas' },
     { to: '/atividades', icon: KanbanSquare, label: 'Atividades' },
     { to: '/clientes', icon: Users, label: 'Clientes' },
+    { to: '/fornecedores', icon: Package, label: 'Fornecedores' },
     { to: '/membros', icon: UserCircle, label: 'Membros' },
 ];
 

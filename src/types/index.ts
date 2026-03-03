@@ -40,11 +40,26 @@ export interface Movimentacao {
     data_realizada?: string;
     origem_cliente_id?: string | null;
     destino_usuario_id?: string | null;
+    destino_fornecedor_id?: string | null;
     destino_tipo?: string;
     categoria: string;
     status: 'confirmado' | 'previsto';
     descricao: string;
     cliente_nome?: string;
+}
+
+export interface Fornecedor {
+    id: string;
+    empresa_id: string;
+    nome: string;
+    cnpj_cpf?: string;
+    email?: string;
+    telefone?: string;
+    contato_nome?: string;
+    segmento?: string;
+    status: 'ativo' | 'inativo';
+    observacoes?: string;
+    created_at?: string;
 }
 
 export interface Reembolso {

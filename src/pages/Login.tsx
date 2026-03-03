@@ -21,7 +21,7 @@ export default function Login() {
         try {
             await login(email, senha);
         } catch (err: any) {
-            console.error('Erro de login detalhado:', err);
+            // Erro tratado na UI
             setError(err.message === 'Invalid login credentials'
                 ? 'E-mail ou senha incorretos.'
                 : 'Ocorreu um erro ao entrar. Tente novamente.');

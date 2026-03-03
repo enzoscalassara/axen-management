@@ -46,5 +46,5 @@ async def get_current_user(token: str = Depends(get_current_user_token)) -> dict
             "metadata": res.user.user_metadata,
         }
     except Exception as e:
-        print(f"Erro ao validar token no Supabase: {e}")
+        # Erro tratado via HTTPException
         raise HTTPException(status_code=401, detail="Token inválido ou expirado")

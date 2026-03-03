@@ -11,6 +11,7 @@ import {
     PieChart,
     Pie,
     Cell,
+    Legend,
 } from 'recharts';
 import {
     DollarSign,
@@ -78,15 +79,27 @@ export default function Dashboard() {
             const metaAlvo = metas.reduce((s, m) => s + Number(m.valor_alvo || 0), 0);
 
             const now = new Date();
+
+            /** Receita confirmada do mês anterior */
+            const mesAnterior = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const receitaMesAnterior = movs
+                .filter(m => m.tipo === 'entrada' && m.status === 'confirmado')
+                .filter(m => {
+                    const d = new Date(m.data);
+                    return d.getMonth() === mesAnterior.getMonth() && d.getFullYear() === mesAnterior.getFullYear();
+                })
+                .reduce((s, m) => s + Number(m.valor), 0);
+
             const fluxoMensal = Array.from({ length: 6 }, (_, i) => {
                 const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
                 const mes = d.toLocaleString('pt-BR', { month: 'short' });
                 const movsDoMes = movs.filter(m => {
                     const md = new Date(m.data);
-                    return md.getMonth() === d.getMonth() && md.getFullYear() === d.getFullYear() && m.status === 'confirmado';
+                    return md.getMonth() === d.getMonth() && md.getFullYear() === d.getFullYear();
                 });
-                const valor = movsDoMes.filter(m => m.tipo === 'entrada').reduce((s, m) => s + Number(m.valor), 0);
-                return { mes, valor };
+                const confirmado = movsDoMes.filter(m => m.tipo === 'entrada' && m.status === 'confirmado').reduce((s, m) => s + Number(m.valor), 0);
+                const previsto = movsDoMes.filter(m => m.tipo === 'entrada' && m.status === 'previsto').reduce((s, m) => s + Number(m.valor), 0);
+                return { mes, valor: confirmado, previsto };
             });
 
             // Despesas agrupadas por categoria
@@ -96,7 +109,7 @@ export default function Dashboard() {
                 despesasPorCat[cat] = (despesasPorCat[cat] || 0) + Number(m.valor);
             });
             const despesas_por_categoria = Object.entries(despesasPorCat).map(([categoria, valor]) => ({ categoria, valor }));
-            const receitas_por_categoria = despesas_por_categoria; // Usa mesmos dados para iterar Cell do Pie
+            const receitas_por_categoria = despesas_por_categoria;
 
             // Atividades atrasadas (prazo < hoje e não concluída)
             const atividades_atrasadas = atvs.filter(a => {
@@ -105,11 +118,28 @@ export default function Dashboard() {
                 return new Date(a.prazo) < now;
             }).length;
 
-            // Metas recentes (em andamento, últimas 5)
+            // Metas recentes — cálculo automático de progresso para metas financeiras
+            const receitaAnoConfirmada = movs
+                .filter(m => m.tipo === 'entrada' && m.status === 'confirmado' && new Date(m.data).getFullYear() === now.getFullYear())
+                .reduce((s, m) => s + Number(m.valor), 0);
+            const receitaMesAtualConfirmada = movs
+                .filter(m => m.tipo === 'entrada' && m.status === 'confirmado')
+                .filter(m => { const d = new Date(m.data); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
+                .reduce((s, m) => s + Number(m.valor), 0);
+
             const metas_recentes = metas
                 .filter(m => m.status === 'em_andamento')
                 .slice(0, 5)
-                .map(m => ({ id: m.id, titulo: m.titulo || 'Meta', progresso: m.progresso || 0, responsavel: m.responsavel || '-', prazo: m.prazo || now.toISOString() }));
+                .map(m => {
+                    let progresso = m.progresso || 0;
+                    const tipo = (m.tipo || '').toLowerCase();
+                    const alvo = Number(m.valor_alvo || 0);
+                    if (alvo > 0) {
+                        if (tipo === 'receita_mensal') progresso = Math.min(100, Math.round((receitaMesAtualConfirmada / alvo) * 100));
+                        else if (tipo === 'receita_anual') progresso = Math.min(100, Math.round((receitaAnoConfirmada / alvo) * 100));
+                    }
+                    return { id: m.id, titulo: m.titulo || 'Meta', progresso, responsavel: m.responsavel || '-', prazo: m.prazo || now.toISOString() };
+                });
 
             // Movimentações pendentes (status = previsto)
             const movsPendentes = movs.filter(m => m.status === 'previsto');
@@ -117,6 +147,7 @@ export default function Dashboard() {
             return {
                 saldo_atual: entradas - saidas,
                 receita_mes: entradas,
+                receita_mes_anterior: receitaMesAnterior,
                 meta_mes: metaAlvo,
                 clientes_ativos: clientes.filter(c => c.status === 'ativo').length,
                 atividades_pendentes: atvs.filter(a => a.status !== 'concluida').length,
@@ -184,14 +215,12 @@ export default function Dashboard() {
             trendUp: true,
         },
         {
-            label: 'Receita do Mês',
-            value: formatCurrency(data.receita_mes),
+            label: 'Receita Confirmada Mês Anterior',
+            value: formatCurrency(data.receita_mes_anterior),
             icon: TrendingUp,
             color: 'text-axen-400',
             bg: 'bg-axen-500/10',
-            sub: `${percentMeta}% da meta`,
-            trend: '+8%',
-            trendUp: true,
+            sub: `${percentMeta}% da meta geral`,
         },
         {
             label: 'Clientes Ativos',
@@ -276,12 +305,18 @@ export default function Dashboard() {
                                     <stop offset="5%" stopColor="#0066ff" stopOpacity={0.3} />
                                     <stop offset="95%" stopColor="#0066ff" stopOpacity={0} />
                                 </linearGradient>
+                                <linearGradient id="colorPrevisto" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.2} />
+                                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                                </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                             <XAxis dataKey="mes" tick={{ fill: '#6a6a8a', fontSize: 12 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fill: '#6a6a8a', fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v / 1000} k`} />
+                            <YAxis tick={{ fill: '#6a6a8a', fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v / 1000}k`} />
                             <Tooltip content={<CustomTooltip />} />
-                            <Area type="monotone" dataKey="valor" stroke="#0066ff" strokeWidth={2} fill="url(#colorReceita)" />
+                            <Legend wrapperStyle={{ fontSize: '11px', color: '#8a8aaa' }} />
+                            <Area type="monotone" dataKey="valor" name="Confirmado" stroke="#0066ff" strokeWidth={2} fill="url(#colorReceita)" />
+                            <Area type="monotone" dataKey="previsto" name="Previsto" stroke="#f59e0b" strokeWidth={2} strokeDasharray="5 5" fill="url(#colorPrevisto)" />
                         </AreaChart>
                     </ResponsiveContainer>
                 </motion.div>

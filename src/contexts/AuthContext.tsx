@@ -17,11 +17,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     /** Busca perfil do usuário na tabela `usuarios`. */
     const fetchUserProfile = useCallback(async (id: string, email: string): Promise<Usuario | null> => {
-        const startTime = Date.now();
-        console.log(`[Auth] Início fetchUserProfile para ${id}`);
-
         try {
-            // Timeout de 7 segundos para a query do banco
             const fetchPromise = supabase
                 .from('usuarios')
                 .select('*')
@@ -34,12 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
 
-            console.log(`[Auth] Banco respondeu em ${Date.now() - startTime}ms. Erro:`, error);
-
-            if (error) {
-                console.error('[Auth] Erro no perfil:', error);
-                return null;
-            }
+            if (error) return null;
 
             return {
                 id: data.id,
@@ -48,22 +39,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 role: data.role,
                 empresas_permitidas: data.empresas_permitidas || [],
             };
-        } catch (err) {
-            console.error('[Auth] Exceção no fetchUserProfile:', err);
+        } catch {
             return null;
         }
     }, []);
 
     useEffect(() => {
         let mounted = true;
-        console.log('[Auth] Configurando listeners de autenticação...');
 
         // Fail-safe: Forçar o fim do loading após 10 segundos
         const failSafeTimer = setTimeout(() => {
-            if (mounted && loading) {
-                console.warn('[Auth] Fail-safe disparado! Forçando fim do loading.');
-                setLoading(false);
-            }
+            if (mounted && loading) setLoading(false);
         }, 10000);
 
         const handleSession = async (session: any) => {
@@ -85,24 +71,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }
             }
 
-            if (mounted) {
-                console.log('[Auth] Estado resolvido, encerrando loading');
-                setLoading(false);
-            }
+            if (mounted) setLoading(false);
         };
 
-        // Obter a sessão inicial (v2 getSession) - tentativa única
         supabase.auth.getSession().then(({ data: { session } }) => {
-            console.log('[Auth] getSession inicial concluído:', !!session);
             handleSession(session);
-        }).catch(err => {
-            console.error('[Auth] Erro no getSession inicial:', err);
+        }).catch(() => {
             if (mounted) setLoading(false);
         });
 
-        // Listener para mudanças
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-            console.log('[Auth] Evento recebido:', event, !!session);
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             handleSession(session);
         });
 
@@ -111,30 +89,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             clearTimeout(failSafeTimer);
             subscription.unsubscribe();
         };
-    }, []); // Estável
+    }, []);
 
     const login = useCallback(async (email: string, senha: string) => {
-        console.log('[Auth] Tentando login...');
         const { data, error } = await supabase.auth.signInWithPassword({ email, password: senha });
-        if (error) {
-            console.error('[Auth] Erro no signIn:', error.message);
-            throw error;
-        }
-        console.log('[Auth] signIn concluído com sucesso');
+        if (error) throw error;
         if (data.session) {
             localStorage.setItem('axen_token', data.session.access_token);
         }
     }, []);
 
     const logout = useCallback(async () => {
-        console.log('[Auth] Logging out...');
         await supabase.auth.signOut();
         localStorage.removeItem('axen_token');
         localStorage.removeItem('axen_empresa_id');
         setUser(null);
     }, []);
 
-    /** useMemo estabiliza o value do provider, evitando re-renders desnecessários. */
     const value = useMemo(() => ({
         user, loading, login, logout
     }), [user, loading, login, logout]);

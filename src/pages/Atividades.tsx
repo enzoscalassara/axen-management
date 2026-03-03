@@ -9,6 +9,7 @@ import {
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../services/supabaseClient';
+import { useMembrosDaEmpresa } from '../hooks/useMembrosDaEmpresa';
 
 const PRIORIDADE_COLORS: Record<string, { label: string; color: string; bg: string }> = {
     baixa: { label: 'Baixa', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
@@ -63,19 +64,8 @@ export default function Atividades() {
         enabled: !!empresa?.id,
     });
 
-    /** Usuarios da empresa para multi-select */
-    const { data: usuarios = [] } = useQuery({
-        queryKey: ['usuarios-empresa', empresa?.id],
-        queryFn: async () => {
-            const { data, error } = await supabase
-                .from('usuarios')
-                .select('id, nome')
-                .contains('empresas_permitidas', [empresa!.id]);
-            if (error) throw error;
-            return data ?? [];
-        },
-        enabled: !!empresa?.id,
-    });
+    /** Membros da empresa para multi-select de responsáveis */
+    const { data: membros = [] } = useMembrosDaEmpresa(empresa?.id);
 
     const atividadesFiltradas = useMemo(() => {
         let filtered = atividades;
@@ -96,8 +86,8 @@ export default function Atividades() {
         if (!result.destination) return;
         const { draggableId, destination } = result;
         if (destination.droppableId === result.source.droppableId) return;
-        const { error } = await supabase.from('atividades').update({ coluna_id: destination.droppableId }).eq('id', draggableId);
-        if (error) console.error('Erro ao mover atividade:', error);
+        const { error: _moveErr } = await supabase.from('atividades').update({ coluna_id: destination.droppableId }).eq('id', draggableId);
+        // Falha silenciosa ao mover atividade
         queryClient.invalidateQueries({ queryKey: ['atividades'] });
     };
 
@@ -122,15 +112,15 @@ export default function Atividades() {
         });
         // Parsear responsavel de volta para selectedUsers
         const names = (atv.responsavel || '').split(', ').map((s: string) => s.trim()).filter(Boolean);
-        const matchedIds = usuarios.filter((u: any) => names.includes(u.nome)).map((u: any) => u.id);
+        const matchedIds = membros.filter(m => names.includes(m.displayName)).map(m => m.id);
         setSelectedUsers(matchedIds);
         setShowModal(true);
-    }, [usuarios]);
+    }, [membros]);
 
     const toggleUser = (userId: string) => {
         setSelectedUsers(prev => {
             const next = prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId];
-            const names = next.map(id => usuarios.find((u: any) => u.id === id)?.nome).filter(Boolean).join(', ');
+            const names = next.map(id => membros.find(m => m.id === id)?.displayName).filter(Boolean).join(', ');
             setFormAtv(f => ({ ...f, responsavel: names }));
             return next;
         });
@@ -161,7 +151,7 @@ export default function Atividades() {
             setSelectedUsers([]);
             queryClient.invalidateQueries({ queryKey: ['atividades'] });
         } catch (err) {
-            console.error('Erro ao salvar atividade:', err);
+            // Erro tratado na UI
             alert('Falha ao salvar atividade.');
         }
     };
@@ -169,7 +159,7 @@ export default function Atividades() {
     const handleDelete = async () => {
         if (!showDeleteConfirm) return;
         const { error } = await supabase.from('atividades').delete().eq('id', showDeleteConfirm);
-        if (error) { console.error('Erro ao excluir:', error); alert('Falha ao excluir.'); }
+        if (error) { alert('Falha ao excluir.'); }
         setShowDeleteConfirm(null);
         setShowModal(false);
         setEditing(null);
@@ -372,21 +362,21 @@ export default function Atividades() {
                                     <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Responsáveis</label>
                                     <div className="flex flex-wrap gap-1.5 mb-2">
                                         {selectedUsers.map(uid => {
-                                            const u = usuarios.find((u: any) => u.id === uid);
-                                            return u ? (
+                                            const m = membros.find(m => m.id === uid);
+                                            return m ? (
                                                 <span key={uid} className="inline-flex items-center gap-1 px-2 py-1 bg-axen-500/15 text-axen-400 text-xs rounded-full">
-                                                    {u.nome}
+                                                    {m.displayName}
                                                     <button type="button" onClick={() => toggleUser(uid)} className="hover:text-white"><X className="w-3 h-3" /></button>
                                                 </span>
                                             ) : null;
                                         })}
                                     </div>
                                     <div className="max-h-32 overflow-y-auto border border-dark-700 rounded-lg">
-                                        {usuarios.map((u: any) => (
-                                            <label key={u.id} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-800/50 cursor-pointer text-sm text-dark-200 hover:text-white transition-colors">
-                                                <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={() => toggleUser(u.id)}
+                                        {membros.map(m => (
+                                            <label key={m.id} className="flex items-center gap-2 px-3 py-2 hover:bg-dark-800/50 cursor-pointer text-sm text-dark-200 hover:text-white transition-colors">
+                                                <input type="checkbox" checked={selectedUsers.includes(m.id)} onChange={() => toggleUser(m.id)}
                                                     className="w-3.5 h-3.5 rounded border-dark-500 text-axen-500 focus:ring-axen-500/20" />
-                                                {u.nome}
+                                                {m.displayName}
                                             </label>
                                         ))}
                                     </div>

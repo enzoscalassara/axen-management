@@ -122,7 +122,7 @@ export default function Membros() {
             setEditingPerfil(null);
             queryClient.invalidateQueries({ queryKey: ['perfis-membros'] });
         } catch (err) {
-            console.error('Erro ao salvar perfil:', err);
+            // Erro tratado na UI
             alert('Falha ao salvar perfil.');
         } finally {
             setSaving(false);

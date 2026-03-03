@@ -39,7 +39,7 @@ export default function NotificationPanel({ isOpen, onClose, onCountChange }: No
             if (error) throw error;
             setNotificacoes(data ?? []);
         } catch (err) {
-            console.error('Erro ao buscar notificações:', err);
+            // Falha silenciosa no fetch de notificações
         } finally {
             setLoading(false);
         }
