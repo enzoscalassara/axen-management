@@ -39,13 +39,19 @@ const cardVariants = {
     }),
 };
 
-/** Tooltip customizado para os gráficos */
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
+/** Tooltip customizado para gráfico de receita — Confirmado + Previsto */
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; dataKey: string; name: string }>; label?: string }) {
     if (!active || !payload?.length) return null;
     return (
-        <div className="glass-card px-3 py-2 text-xs">
-            <p className="text-dark-200 mb-1">{label}</p>
-            <p className="text-white font-semibold">{formatCurrency(payload[0].value)}</p>
+        <div className="glass-card px-4 py-3 text-xs space-y-1">
+            <p className="text-dark-200 font-medium mb-1.5">{label}</p>
+            {payload.map(p => (
+                <p key={p.dataKey} className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.dataKey === 'valor' ? '#0066ff' : '#f59e0b' }} />
+                    <span className="text-dark-300">{p.name}:</span>
+                    <span className="text-white font-semibold">{formatCurrency(p.value)}</span>
+                </p>
+            ))}
         </div>
     );
 }
@@ -90,9 +96,10 @@ export default function Dashboard() {
                 })
                 .reduce((s, m) => s + Number(m.valor), 0);
 
-            const fluxoMensal = Array.from({ length: 6 }, (_, i) => {
-                const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
-                const mes = d.toLocaleString('pt-BR', { month: 'short' });
+            const MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+            const fluxoMensal = Array.from({ length: 12 }, (_, i) => {
+                const d = new Date(now.getFullYear(), i, 1);
+                const mes = MESES_PT[i];
                 const movsDoMes = movs.filter(m => {
                     const md = new Date(m.data);
                     return md.getMonth() === d.getMonth() && md.getFullYear() === d.getFullYear();
@@ -122,8 +129,9 @@ export default function Dashboard() {
             const receitaAnoConfirmada = movs
                 .filter(m => m.tipo === 'entrada' && m.status === 'confirmado' && new Date(m.data).getFullYear() === now.getFullYear())
                 .reduce((s, m) => s + Number(m.valor), 0);
-            const receitaMesAtualConfirmada = movs
-                .filter(m => m.tipo === 'entrada' && m.status === 'confirmado')
+            /** Receita do mês atual: confirmado + previsto */
+            const receitaMesAtualTotal = movs
+                .filter(m => m.tipo === 'entrada')
                 .filter(m => { const d = new Date(m.data); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
                 .reduce((s, m) => s + Number(m.valor), 0);
 
@@ -132,11 +140,15 @@ export default function Dashboard() {
                 .slice(0, 5)
                 .map(m => {
                     let progresso = m.progresso || 0;
-                    const tipo = (m.tipo || '').toLowerCase();
                     const alvo = Number(m.valor_alvo || 0);
-                    if (alvo > 0) {
-                        if (tipo === 'receita_mensal') progresso = Math.min(100, Math.round((receitaMesAtualConfirmada / alvo) * 100));
-                        else if (tipo === 'receita_anual') progresso = Math.min(100, Math.round((receitaAnoConfirmada / alvo) * 100));
+                    if (m.tipo_meta === 'financeira' && m.subtipo === 'receita_mensal' && alvo > 0) {
+                        progresso = parseFloat(((receitaMesAtualTotal / alvo) * 100).toFixed(1));
+                    } else if (m.tipo_meta === 'financeira' && m.subtipo === 'receita_anual' && alvo > 0) {
+                        progresso = parseFloat(((receitaAnoConfirmada / alvo) * 100).toFixed(1));
+                    } else {
+                        const tipo = (m.tipo || '').toLowerCase();
+                        if (alvo > 0 && tipo === 'receita_mensal') progresso = parseFloat(((receitaMesAtualTotal / alvo) * 100).toFixed(1));
+                        else if (alvo > 0 && tipo === 'receita_anual') progresso = parseFloat(((receitaAnoConfirmada / alvo) * 100).toFixed(1));
                     }
                     return { id: m.id, titulo: m.titulo || 'Meta', progresso, responsavel: m.responsavel || '-', prazo: m.prazo || now.toISOString() };
                 });
@@ -144,11 +156,16 @@ export default function Dashboard() {
             // Movimentações pendentes (status = previsto)
             const movsPendentes = movs.filter(m => m.status === 'previsto');
 
+            /** Meta mensal específica (tipo_meta='financeira', subtipo='receita_mensal') */
+            const metaMensal = metas.find(m => m.tipo_meta === 'financeira' && m.subtipo === 'receita_mensal');
+            const metaMensalAlvo = metaMensal ? Number(metaMensal.valor_alvo || 0) : metaAlvo;
+
             return {
                 saldo_atual: entradas - saidas,
                 receita_mes: entradas,
                 receita_mes_anterior: receitaMesAnterior,
                 meta_mes: metaAlvo,
+                meta_mensal_alvo: metaMensalAlvo,
                 clientes_ativos: clientes.filter(c => c.status === 'ativo').length,
                 atividades_pendentes: atvs.filter(a => a.status !== 'concluida').length,
                 atividades_atrasadas,
@@ -202,7 +219,7 @@ export default function Dashboard() {
         );
     }
 
-    const percentMeta = (data.meta_mes || 0) > 0 ? Math.round(((data.receita_mes || 0) / data.meta_mes) * 100) : 0;
+    const percentMeta = (data.meta_mensal_alvo || 0) > 0 ? parseFloat(((data.receita_mes_anterior || 0) / data.meta_mensal_alvo * 100).toFixed(1)) : 0;
 
     const kpis = [
         {

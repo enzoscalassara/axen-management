@@ -17,6 +17,7 @@ import {
     Check,
     AlertTriangle,
     FilterX,
+    Repeat,
 } from 'lucide-react';
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { formatCurrency, parseCurrencyToNumber, formatCurrencyInput } from '../utils/formatters';
@@ -49,10 +50,20 @@ export default function Financeiro() {
 
     /** Filtros avançados */
     const [filtroDataPrevMes, setFiltroDataPrevMes] = useState('');
+    const [filtroDataPrevAno, setFiltroDataPrevAno] = useState('');
     const [filtroDataRealMes, setFiltroDataRealMes] = useState('');
-    const [filtroClienteFornecedorIds, setFiltroClienteFornecedorIds] = useState<string[]>([]);
+    const [filtroDataRealAno, setFiltroDataRealAno] = useState('');
+    const [filtroClienteFornecedor, setFiltroClienteFornecedor] = useState<string>('');
+    const [filtroClienteFornecedorTexto, setFiltroClienteFornecedorTexto] = useState('');
+    const [showCfSuggestions, setShowCfSuggestions] = useState(false);
+    const cfInputRef = useRef<HTMLInputElement>(null);
     const [showCatSuggestions, setShowCatSuggestions] = useState(false);
     const catInputRef = useRef<HTMLInputElement>(null);
+
+    /** Recorrência */
+    const [isRecorrente, setIsRecorrente] = useState(false);
+    const [recorrenciaInicio, setRecorrenciaInicio] = useState('');
+    const [recorrenciaFim, setRecorrenciaFim] = useState('');
 
     const [formMov, setFormMov] = useState(defaultFormMov);
 
@@ -157,27 +168,37 @@ export default function Financeiro() {
     const movsFiltradas = useMemo(() => {
         let filtered = movimentacoes;
         if (filtroCategoria !== 'todos') filtered = filtered.filter((m: any) => m.categoria === filtroCategoria);
-        if (filtroDataPrevMes) {
-            filtered = filtered.filter((m: any) => m.data_prevista && m.data_prevista.startsWith(filtroDataPrevMes));
+        const filtroPrevYM = (filtroDataPrevAno && filtroDataPrevMes) ? `${filtroDataPrevAno}-${filtroDataPrevMes}` : '';
+        if (filtroPrevYM) {
+            filtered = filtered.filter((m: any) => m.data_prevista && m.data_prevista.startsWith(filtroPrevYM));
         }
-        if (filtroDataRealMes) {
-            filtered = filtered.filter((m: any) => m.data_realizada && m.data_realizada.startsWith(filtroDataRealMes));
+        const filtroRealYM = (filtroDataRealAno && filtroDataRealMes) ? `${filtroDataRealAno}-${filtroDataRealMes}` : '';
+        if (filtroRealYM) {
+            filtered = filtered.filter((m: any) => m.data_realizada && m.data_realizada.startsWith(filtroRealYM));
         }
-        if (filtroClienteFornecedorIds.length > 0) {
+        if (filtroClienteFornecedor) {
             filtered = filtered.filter((m: any) =>
-                filtroClienteFornecedorIds.includes(m.origem_cliente_id) ||
-                filtroClienteFornecedorIds.includes(m.destino_fornecedor_id) ||
-                filtroClienteFornecedorIds.includes(m.destino_usuario_id)
+                m.origem_cliente_id === filtroClienteFornecedor ||
+                m.destino_fornecedor_id === filtroClienteFornecedor ||
+                m.destino_usuario_id === filtroClienteFornecedor
             );
         }
         return filtered;
-    }, [movimentacoes, filtroCategoria, filtroDataPrevMes, filtroDataRealMes, filtroClienteFornecedorIds]);
+    }, [movimentacoes, filtroCategoria, filtroDataPrevMes, filtroDataPrevAno, filtroDataRealMes, filtroDataRealAno, filtroClienteFornecedor]);
 
-    const hasAdvancedFilters = filtroDataPrevMes || filtroDataRealMes || filtroClienteFornecedorIds.length > 0;
+    /** Lista combinada de clientes + fornecedores para autocomplete */
+    const clientesFornecedoresList = useMemo(() => {
+        const items: { id: string; nome: string; tipo: 'Cliente' | 'Fornecedor' }[] = [];
+        clientes.forEach((c: any) => items.push({ id: c.id, nome: c.nome, tipo: 'Cliente' }));
+        fornecedores.forEach((f: any) => items.push({ id: f.id, nome: f.nome, tipo: 'Fornecedor' }));
+        return items;
+    }, [clientes, fornecedores]);
+
+    const hasAdvancedFilters = filtroDataPrevMes || filtroDataRealMes || filtroClienteFornecedor;
     const clearAdvancedFilters = () => {
-        setFiltroDataPrevMes('');
-        setFiltroDataRealMes('');
-        setFiltroClienteFornecedorIds([]);
+        setFiltroDataPrevMes(''); setFiltroDataPrevAno('');
+        setFiltroDataRealMes(''); setFiltroDataRealAno('');
+        setFiltroClienteFornecedor(''); setFiltroClienteFornecedorTexto('');
     };
 
     const stats = useMemo(() => {
@@ -187,8 +208,12 @@ export default function Financeiro() {
             .reduce((acc: number, cur: any) => acc + Number(cur.valor), 0);
         const previsto = movimentacoes.filter((m: any) => m.status === 'previsto')
             .reduce((acc: number, cur: any) => acc + (cur.tipo === 'entrada' ? Number(cur.valor) : -Number(cur.valor)), 0);
-        return { saldo: entradas - saidas, entradas, saidas, previsto };
-    }, [movimentacoes]);
+        /** Reembolsos pendentes contam como saída projetada */
+        const reembPendente = reembolsos
+            .filter((r: any) => r.status === 'pendente')
+            .reduce((acc: number, cur: any) => acc + Number(cur.valor), 0);
+        return { saldo: entradas - saidas, entradas, saidas, previsto: previsto - reembPendente };
+    }, [movimentacoes, reembolsos]);
 
     // ---- Handlers ----
 
@@ -237,7 +262,7 @@ export default function Financeiro() {
         e.preventDefault();
         if (!empresa || !formMov.valor) return;
 
-        const payload: any = {
+        const basePayload: any = {
             tipo: formMov.tipo,
             valor: formMov.valor,
             data: formMov.data,
@@ -254,18 +279,52 @@ export default function Financeiro() {
 
         try {
             if (editingMov) {
-                const { error } = await supabase.from('movimentacoes').update(payload).eq('id', editingMov.id);
+                const { error } = await supabase.from('movimentacoes').update(basePayload).eq('id', editingMov.id);
                 if (error) throw error;
+            } else if (isRecorrente && recorrenciaInicio && recorrenciaFim) {
+                /** Batch insert de transações recorrentes */
+                const grupoId = crypto.randomUUID();
+                const [anoI, mesI] = recorrenciaInicio.split('-').map(Number);
+                const [anoF, mesF] = recorrenciaFim.split('-').map(Number);
+                const totalMeses = (anoF - anoI) * 12 + (mesF - mesI) + 1;
+                if (totalMeses < 1 || totalMeses > 60) { alert('Intervalo inválido (máx 60 meses).'); return; }
+
+                const diaBase = formMov.data_prevista
+                    ? parseInt(formMov.data_prevista.split('-')[2] || '1', 10)
+                    : parseInt(formMov.data.split('-')[2] || '1', 10);
+
+                const records = Array.from({ length: totalMeses }, (_, i) => {
+                    const dt = new Date(anoI, mesI - 1 + i, 1);
+                    const ultimoDia = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+                    const dia = Math.min(diaBase, ultimoDia);
+                    const dataPrev = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+                    return {
+                        ...basePayload,
+                        empresa_id: empresa.id,
+                        data: dataPrev,
+                        data_prevista: dataPrev,
+                        data_realizada: null,
+                        status: 'previsto' as const,
+                        recorrente: true,
+                        recorrencia_grupo_id: grupoId,
+                    };
+                });
+
+                const { error } = await supabase.from('movimentacoes').insert(records);
+                if (error) throw error;
+                alert(`${records.length} movimentações recorrentes criadas com sucesso`);
             } else {
-                const { error } = await supabase.from('movimentacoes').insert([{ ...payload, empresa_id: empresa.id }]);
+                const { error } = await supabase.from('movimentacoes').insert([{ ...basePayload, empresa_id: empresa.id }]);
                 if (error) throw error;
             }
             setShowModal(false);
             setEditingMov(null);
             setFormMov(defaultFormMov);
+            setIsRecorrente(false);
+            setRecorrenciaInicio('');
+            setRecorrenciaFim('');
             await queryClient.invalidateQueries();
         } catch (err) {
-            // Erro tratado na UI
             alert('Falha ao salvar movimentação.');
         }
     };
@@ -401,15 +460,74 @@ export default function Financeiro() {
             {/* Filtros Avançados */}
             {activeTab === 'movimentacoes' && (
                 <div className="flex flex-wrap items-end gap-3">
+                    {/* Filtro Data Prevista — dropdowns mês + ano */}
                     <div className="space-y-1">
-                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Prevista (mês)</label>
-                        <input type="month" value={filtroDataPrevMes} onChange={(e) => setFiltroDataPrevMes(e.target.value)}
-                            className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50" />
+                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Prevista</label>
+                        <div className="flex gap-1">
+                            <select value={filtroDataPrevMes} onChange={(e) => setFiltroDataPrevMes(e.target.value)}
+                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
+                                <option value="">Mês</option>
+                                {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((m, i) => (
+                                    <option key={m} value={m}>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][i]}</option>
+                                ))}
+                            </select>
+                            <select value={filtroDataPrevAno} onChange={(e) => setFiltroDataPrevAno(e.target.value)}
+                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
+                                <option value="">Ano</option>
+                                {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                        </div>
                     </div>
+                    {/* Filtro Data Realizada — dropdowns mês + ano */}
                     <div className="space-y-1">
-                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Realizada (mês)</label>
-                        <input type="month" value={filtroDataRealMes} onChange={(e) => setFiltroDataRealMes(e.target.value)}
-                            className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50" />
+                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Realizada</label>
+                        <div className="flex gap-1">
+                            <select value={filtroDataRealMes} onChange={(e) => setFiltroDataRealMes(e.target.value)}
+                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
+                                <option value="">Mês</option>
+                                {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((m, i) => (
+                                    <option key={m} value={m}>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][i]}</option>
+                                ))}
+                            </select>
+                            <select value={filtroDataRealAno} onChange={(e) => setFiltroDataRealAno(e.target.value)}
+                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
+                                <option value="">Ano</option>
+                                {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    {/* Filtro Cliente/Fornecedor — autocomplete */}
+                    <div className="space-y-1 relative">
+                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Cliente / Fornecedor</label>
+                        <div className="relative">
+                            <input type="text" ref={cfInputRef}
+                                value={filtroClienteFornecedorTexto}
+                                onChange={(e) => { setFiltroClienteFornecedorTexto(e.target.value); setShowCfSuggestions(true); if (!e.target.value) setFiltroClienteFornecedor(''); }}
+                                onFocus={() => setShowCfSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowCfSuggestions(false), 200)}
+                                placeholder="Buscar..."
+                                className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50 w-48 pr-7" />
+                            {filtroClienteFornecedor && (
+                                <button type="button" onClick={() => { setFiltroClienteFornecedor(''); setFiltroClienteFornecedorTexto(''); }}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"><X className="w-3.5 h-3.5" /></button>
+                            )}
+                        </div>
+                        {showCfSuggestions && filtroClienteFornecedorTexto && !filtroClienteFornecedor && (
+                            <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-dark-800 border border-dark-700 rounded-lg max-h-40 overflow-y-auto shadow-xl">
+                                {clientesFornecedoresList
+                                    .filter(cf => cf.nome.toLowerCase().startsWith(filtroClienteFornecedorTexto.toLowerCase()))
+                                    .map(cf => (
+                                        <button key={cf.id} type="button" className="w-full text-left px-3 py-2 text-sm text-dark-200 hover:text-white hover:bg-dark-700 transition-colors flex items-center gap-2"
+                                            onMouseDown={() => { setFiltroClienteFornecedor(cf.id); setFiltroClienteFornecedorTexto(cf.nome); setShowCfSuggestions(false); }}>
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cf.tipo === 'Cliente' ? 'bg-axen-500/20 text-axen-400' : 'bg-amber-500/20 text-amber-400'}`}>{cf.tipo === 'Cliente' ? 'C' : 'F'}</span>
+                                            {cf.nome}
+                                        </button>
+                                    ))}
+                                {clientesFornecedoresList.filter(cf => cf.nome.toLowerCase().startsWith(filtroClienteFornecedorTexto.toLowerCase())).length === 0 && (
+                                    <p className="px-3 py-2 text-xs text-dark-400">Nenhum resultado</p>
+                                )}
+                            </div>
+                        )}
                     </div>
                     {hasAdvancedFilters && (
                         <button onClick={clearAdvancedFilters} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 bg-red-500/10 rounded-lg transition-colors">
@@ -631,6 +749,34 @@ export default function Financeiro() {
                                                 <option value="">Selecione o fornecedor</option>
                                                 {fornecedores.map((f: any) => <option key={f.id} value={f.id}>{f.nome}</option>)}
                                             </select>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Recorrência — visível somente em criação */}
+                                {!editingMov && (
+                                    <div className="space-y-3 border-t border-dark-800 pt-4">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" checked={isRecorrente} onChange={(e) => setIsRecorrente(e.target.checked)}
+                                                className="w-4 h-4 rounded border-dark-500 text-axen-500 focus:ring-axen-500/20" />
+                                            <Repeat className="w-4 h-4 text-dark-300" />
+                                            <span className="text-sm text-dark-200">Movimentação Recorrente</span>
+                                        </label>
+                                        {isRecorrente && (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1.5">
+                                                    <label className="text-xs font-medium text-dark-300 uppercase">Início da Recorrência</label>
+                                                    <input type="month" required value={recorrenciaInicio}
+                                                        onChange={(e) => setRecorrenciaInicio(e.target.value)}
+                                                        className="w-full text-sm" />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <label className="text-xs font-medium text-dark-300 uppercase">Fim da Recorrência</label>
+                                                    <input type="month" required value={recorrenciaFim}
+                                                        onChange={(e) => setRecorrenciaFim(e.target.value)}
+                                                        className="w-full text-sm" />
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
                                 )}
