@@ -9,7 +9,6 @@ import {
     X,
     Tag,
     Clock,
-    Search,
     CheckCircle2,
     AlertCircle,
     Pencil,
@@ -48,11 +47,12 @@ export default function Financeiro() {
         origem_cliente_id: '' as string, destino_usuario_id: '' as string, destino_fornecedor_id: '' as string, destino_tipo: 'terceiros',
     };
 
-    /** Filtros avançados */
+    /** Filtros avançados — ano atual pré-selecionado */
+    const anoAtual = String(new Date().getFullYear());
     const [filtroDataPrevMes, setFiltroDataPrevMes] = useState('');
-    const [filtroDataPrevAno, setFiltroDataPrevAno] = useState('');
+    const [filtroDataPrevAno, setFiltroDataPrevAno] = useState(anoAtual);
     const [filtroDataRealMes, setFiltroDataRealMes] = useState('');
-    const [filtroDataRealAno, setFiltroDataRealAno] = useState('');
+    const [filtroDataRealAno, setFiltroDataRealAno] = useState(anoAtual);
     const [filtroClienteFornecedor, setFiltroClienteFornecedor] = useState<string>('');
     const [filtroClienteFornecedorTexto, setFiltroClienteFornecedorTexto] = useState('');
     const [showCfSuggestions, setShowCfSuggestions] = useState(false);
@@ -168,13 +168,15 @@ export default function Financeiro() {
     const movsFiltradas = useMemo(() => {
         let filtered = movimentacoes;
         if (filtroCategoria !== 'todos') filtered = filtered.filter((m: any) => m.categoria === filtroCategoria);
-        const filtroPrevYM = (filtroDataPrevAno && filtroDataPrevMes) ? `${filtroDataPrevAno}-${filtroDataPrevMes}` : '';
-        if (filtroPrevYM) {
-            filtered = filtered.filter((m: any) => m.data_prevista && m.data_prevista.startsWith(filtroPrevYM));
+        /* Filtro Data Prevista: por ano sozinho ou ano+mês */
+        if (filtroDataPrevAno) {
+            const prefix = filtroDataPrevMes ? `${filtroDataPrevAno}-${filtroDataPrevMes}` : filtroDataPrevAno;
+            filtered = filtered.filter((m: any) => m.data_prevista && m.data_prevista.startsWith(prefix));
         }
-        const filtroRealYM = (filtroDataRealAno && filtroDataRealMes) ? `${filtroDataRealAno}-${filtroDataRealMes}` : '';
-        if (filtroRealYM) {
-            filtered = filtered.filter((m: any) => m.data_realizada && m.data_realizada.startsWith(filtroRealYM));
+        /* Filtro Data Realizada: mesma lógica */
+        if (filtroDataRealAno) {
+            const prefix = filtroDataRealMes ? `${filtroDataRealAno}-${filtroDataRealMes}` : filtroDataRealAno;
+            filtered = filtered.filter((m: any) => m.data_realizada && m.data_realizada.startsWith(prefix));
         }
         if (filtroClienteFornecedor) {
             filtered = filtered.filter((m: any) =>
@@ -194,10 +196,10 @@ export default function Financeiro() {
         return items;
     }, [clientes, fornecedores]);
 
-    const hasAdvancedFilters = filtroDataPrevMes || filtroDataRealMes || filtroClienteFornecedor;
+    const hasAdvancedFilters = filtroDataPrevMes || filtroDataPrevAno !== anoAtual || filtroDataRealMes || filtroDataRealAno !== anoAtual || filtroClienteFornecedor;
     const clearAdvancedFilters = () => {
-        setFiltroDataPrevMes(''); setFiltroDataPrevAno('');
-        setFiltroDataRealMes(''); setFiltroDataRealAno('');
+        setFiltroDataPrevMes(''); setFiltroDataPrevAno(anoAtual);
+        setFiltroDataRealMes(''); setFiltroDataRealAno(anoAtual);
         setFiltroClienteFornecedor(''); setFiltroClienteFornecedorTexto('');
     };
 
@@ -440,102 +442,87 @@ export default function Financeiro() {
                     ))}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 pb-4 md:pb-0">
-                    <div className="relative">
-                        <Search className="w-4 h-4 text-dark-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input type="text" placeholder="Buscar..." className="bg-dark-900 border border-dark-800 rounded-lg pl-9 pr-4 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50 w-full md:w-48" />
-                    </div>
-                    <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
+                    <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
                         <option value="todos">Todos Tipos</option>
                         <option value="entrada">Entradas</option>
                         <option value="saida">Saídas</option>
                     </select>
-                    <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
+                    <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
                         <option value="todos">Status</option>
                         <option value="confirmado">Confirmado</option>
                         <option value="previsto">Previsto</option>
                     </select>
-                </div>
-            </div>
-
-            {/* Filtros Avançados */}
-            {activeTab === 'movimentacoes' && (
-                <div className="flex flex-wrap items-end gap-3">
-                    {/* Filtro Data Prevista — dropdowns mês + ano */}
-                    <div className="space-y-1">
-                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Prevista</label>
-                        <div className="flex gap-1">
-                            <select value={filtroDataPrevMes} onChange={(e) => setFiltroDataPrevMes(e.target.value)}
-                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
-                                <option value="">Mês</option>
-                                {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((m, i) => (
-                                    <option key={m} value={m}>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][i]}</option>
-                                ))}
-                            </select>
-                            <select value={filtroDataPrevAno} onChange={(e) => setFiltroDataPrevAno(e.target.value)}
-                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
-                                <option value="">Ano</option>
-                                {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
-                            </select>
-                        </div>
-                    </div>
-                    {/* Filtro Data Realizada — dropdowns mês + ano */}
-                    <div className="space-y-1">
-                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Data Realizada</label>
-                        <div className="flex gap-1">
-                            <select value={filtroDataRealMes} onChange={(e) => setFiltroDataRealMes(e.target.value)}
-                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
-                                <option value="">Mês</option>
-                                {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((m, i) => (
-                                    <option key={m} value={m}>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][i]}</option>
-                                ))}
-                            </select>
-                            <select value={filtroDataRealAno} onChange={(e) => setFiltroDataRealAno(e.target.value)}
-                                className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50">
-                                <option value="">Ano</option>
-                                {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
-                            </select>
-                        </div>
-                    </div>
-                    {/* Filtro Cliente/Fornecedor — autocomplete */}
-                    <div className="space-y-1 relative">
-                        <label className="text-[10px] text-dark-400 uppercase tracking-wider">Cliente / Fornecedor</label>
-                        <div className="relative">
-                            <input type="text" ref={cfInputRef}
-                                value={filtroClienteFornecedorTexto}
-                                onChange={(e) => { setFiltroClienteFornecedorTexto(e.target.value); setShowCfSuggestions(true); if (!e.target.value) setFiltroClienteFornecedor(''); }}
-                                onFocus={() => setShowCfSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowCfSuggestions(false), 200)}
-                                placeholder="Buscar..."
-                                className="bg-dark-900 border border-dark-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-axen-500/50 w-48 pr-7" />
-                            {filtroClienteFornecedor && (
-                                <button type="button" onClick={() => { setFiltroClienteFornecedor(''); setFiltroClienteFornecedorTexto(''); }}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"><X className="w-3.5 h-3.5" /></button>
-                            )}
-                        </div>
-                        {showCfSuggestions && filtroClienteFornecedorTexto && !filtroClienteFornecedor && (
-                            <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-dark-800 border border-dark-700 rounded-lg max-h-40 overflow-y-auto shadow-xl">
-                                {clientesFornecedoresList
-                                    .filter(cf => cf.nome.toLowerCase().startsWith(filtroClienteFornecedorTexto.toLowerCase()))
-                                    .map(cf => (
-                                        <button key={cf.id} type="button" className="w-full text-left px-3 py-2 text-sm text-dark-200 hover:text-white hover:bg-dark-700 transition-colors flex items-center gap-2"
-                                            onMouseDown={() => { setFiltroClienteFornecedor(cf.id); setFiltroClienteFornecedorTexto(cf.nome); setShowCfSuggestions(false); }}>
-                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cf.tipo === 'Cliente' ? 'bg-axen-500/20 text-axen-400' : 'bg-amber-500/20 text-amber-400'}`}>{cf.tipo === 'Cliente' ? 'C' : 'F'}</span>
-                                            {cf.nome}
-                                        </button>
+                    {activeTab === 'movimentacoes' && (
+                        <>
+                            {/* Data Prevista */}
+                            <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-dark-400 uppercase tracking-wider mr-0.5">Prev.</span>
+                                <select value={filtroDataPrevMes} onChange={(e) => setFiltroDataPrevMes(e.target.value)}
+                                    className="bg-dark-900 border border-dark-800 rounded-lg px-1.5 py-1.5 text-xs text-white focus:outline-none focus:border-axen-500/50">
+                                    <option value="">Mês</option>
+                                    {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((m, i) => (
+                                        <option key={m} value={m}>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][i]}</option>
                                     ))}
-                                {clientesFornecedoresList.filter(cf => cf.nome.toLowerCase().startsWith(filtroClienteFornecedorTexto.toLowerCase())).length === 0 && (
-                                    <p className="px-3 py-2 text-xs text-dark-400">Nenhum resultado</p>
+                                </select>
+                                <select value={filtroDataPrevAno} onChange={(e) => setFiltroDataPrevAno(e.target.value)}
+                                    className="bg-dark-900 border border-dark-800 rounded-lg px-1.5 py-1.5 text-xs text-white focus:outline-none focus:border-axen-500/50">
+                                    {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
+                                </select>
+                            </div>
+                            {/* Data Realizada */}
+                            <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-dark-400 uppercase tracking-wider mr-0.5">Real.</span>
+                                <select value={filtroDataRealMes} onChange={(e) => setFiltroDataRealMes(e.target.value)}
+                                    className="bg-dark-900 border border-dark-800 rounded-lg px-1.5 py-1.5 text-xs text-white focus:outline-none focus:border-axen-500/50">
+                                    <option value="">Mês</option>
+                                    {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((m, i) => (
+                                        <option key={m} value={m}>{['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][i]}</option>
+                                    ))}
+                                </select>
+                                <select value={filtroDataRealAno} onChange={(e) => setFiltroDataRealAno(e.target.value)}
+                                    className="bg-dark-900 border border-dark-800 rounded-lg px-1.5 py-1.5 text-xs text-white focus:outline-none focus:border-axen-500/50">
+                                    {[2024, 2025, 2026, 2027].map(a => <option key={a} value={a}>{a}</option>)}
+                                </select>
+                            </div>
+                            {/* Cliente/Fornecedor autocomplete */}
+                            <div className="relative">
+                                <input type="text" ref={cfInputRef}
+                                    value={filtroClienteFornecedorTexto}
+                                    onChange={(e) => { setFiltroClienteFornecedorTexto(e.target.value); setShowCfSuggestions(true); if (!e.target.value) setFiltroClienteFornecedor(''); }}
+                                    onFocus={() => setShowCfSuggestions(true)}
+                                    onBlur={() => setTimeout(() => setShowCfSuggestions(false), 200)}
+                                    placeholder="Cliente / Forn."
+                                    className="bg-dark-900 border border-dark-800 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-axen-500/50 w-36 pr-6" />
+                                {filtroClienteFornecedor && (
+                                    <button type="button" onClick={() => { setFiltroClienteFornecedor(''); setFiltroClienteFornecedorTexto(''); }}
+                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white"><X className="w-3 h-3" /></button>
+                                )}
+                                {showCfSuggestions && filtroClienteFornecedorTexto && !filtroClienteFornecedor && (
+                                    <div className="absolute z-10 top-full left-0 mt-1 w-56 bg-dark-800 border border-dark-700 rounded-lg max-h-40 overflow-y-auto shadow-xl">
+                                        {clientesFornecedoresList
+                                            .filter(cf => cf.nome.toLowerCase().startsWith(filtroClienteFornecedorTexto.toLowerCase()))
+                                            .map(cf => (
+                                                <button key={cf.id} type="button" className="w-full text-left px-3 py-2 text-sm text-dark-200 hover:text-white hover:bg-dark-700 transition-colors flex items-center gap-2"
+                                                    onMouseDown={() => { setFiltroClienteFornecedor(cf.id); setFiltroClienteFornecedorTexto(cf.nome); setShowCfSuggestions(false); }}>
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cf.tipo === 'Cliente' ? 'bg-axen-500/20 text-axen-400' : 'bg-amber-500/20 text-amber-400'}`}>{cf.tipo === 'Cliente' ? 'C' : 'F'}</span>
+                                                    {cf.nome}
+                                                </button>
+                                            ))}
+                                        {clientesFornecedoresList.filter(cf => cf.nome.toLowerCase().startsWith(filtroClienteFornecedorTexto.toLowerCase())).length === 0 && (
+                                            <p className="px-3 py-2 text-xs text-dark-400">Nenhum resultado</p>
+                                        )}
+                                    </div>
                                 )}
                             </div>
-                        )}
-                    </div>
-                    {hasAdvancedFilters && (
-                        <button onClick={clearAdvancedFilters} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300 bg-red-500/10 rounded-lg transition-colors">
-                            <FilterX className="w-3.5 h-3.5" /> Limpar filtros
-                        </button>
+                            {hasAdvancedFilters && (
+                                <button onClick={clearAdvancedFilters} className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-red-400 hover:text-red-300 bg-red-500/10 rounded-lg transition-colors">
+                                    <FilterX className="w-3.5 h-3.5" /> Limpar
+                                </button>
+                            )}
+                        </>
                     )}
                 </div>
-            )}
+            </div>
 
             {/* Listagem Movimentações */}
             {activeTab === 'movimentacoes' ? (

@@ -365,11 +365,14 @@ export default function Dashboard() {
                             <Tooltip
                                 formatter={(value) => formatCurrency(Number(value))}
                                 contentStyle={{
-                                    background: 'rgba(18,18,28,0.9)',
-                                    border: '1px solid rgba(255,255,255,0.06)',
+                                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                                    border: '1px solid rgba(59, 130, 246, 0.3)',
                                     borderRadius: '8px',
                                     fontSize: '12px',
+                                    color: '#ffffff',
                                 }}
+                                itemStyle={{ color: '#ffffff' }}
+                                labelStyle={{ color: '#ffffff' }}
                             />
                         </PieChart>
                     </ResponsiveContainer>

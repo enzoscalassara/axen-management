@@ -89,6 +89,9 @@ export interface Meta {
     status: 'em_andamento' | 'concluida' | 'cancelada';
     progresso: number;
     cliente_nome?: string;
+    cliente_vinculado_id?: string;
+    acompanhamento_tipo?: 'geral' | 'financeira';
+    calculo_automatico?: boolean;
 }
 
 export interface Atividade {
@@ -103,6 +106,8 @@ export interface Atividade {
     coluna_id: string;
     status: string;
     cliente_nome?: string;
+    pessoal?: boolean;
+    criador_id?: string;
 }
 
 export interface ColunaKanban {

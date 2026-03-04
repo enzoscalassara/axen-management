@@ -104,7 +104,11 @@ CREATE POLICY "colunas_kanban_delete" ON colunas_kanban FOR DELETE
 -- Policies para ATIVIDADES
 -- ============================================================
 CREATE POLICY "atividades_select" ON atividades FOR SELECT
-    USING (user_has_access_to_empresa(empresa_id));
+    USING (
+        (pessoal = false AND user_has_access_to_empresa(empresa_id))
+        OR
+        (pessoal = true AND criador_id = auth.uid())
+    );
 
 CREATE POLICY "atividades_insert" ON atividades FOR INSERT
     WITH CHECK (user_has_access_to_empresa(empresa_id));

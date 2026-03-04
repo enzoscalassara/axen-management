@@ -93,6 +93,9 @@ CREATE TABLE IF NOT EXISTS metas (
     responsavel VARCHAR(255),
     status VARCHAR(20) DEFAULT 'em_andamento' CHECK (status IN ('em_andamento', 'concluida', 'cancelada')),
     progresso INTEGER DEFAULT 0 CHECK (progresso >= 0 AND progresso <= 100),
+    cliente_vinculado_id UUID REFERENCES clientes(id),
+    acompanhamento_tipo TEXT,
+    calculo_automatico BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -125,6 +128,8 @@ CREATE TABLE IF NOT EXISTS atividades (
     prioridade VARCHAR(20) DEFAULT 'media' CHECK (prioridade IN ('baixa', 'media', 'alta', 'urgente')),
     coluna_id UUID REFERENCES colunas_kanban(id) ON DELETE SET NULL,
     status VARCHAR(50),
+    pessoal BOOLEAN DEFAULT false,
+    criador_id UUID REFERENCES auth.users(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

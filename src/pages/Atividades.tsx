@@ -4,7 +4,7 @@ import {
     DragDropContext, Droppable, Draggable, type DropResult,
 } from '@hello-pangea/dnd';
 import {
-    Plus, Filter, X, Calendar, User, Flag, List, LayoutGrid, AlertTriangle, Pencil, Trash2,
+    Plus, Filter, X, Calendar, User, Flag, List, LayoutGrid, AlertTriangle, Pencil, Trash2, Info,
 } from 'lucide-react';
 import { useEmpresa } from '../contexts/EmpresaContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -21,7 +21,7 @@ const PRIORIDADE_COLORS: Record<string, { label: string; color: string; bg: stri
 type View = 'kanban' | 'tabela';
 
 const defaultForm = {
-    titulo: '', descricao: '', responsavel: '', prazo: '', prioridade: 'media', coluna_id: '',
+    titulo: '', descricao: '', responsavel: '', prazo: '', prioridade: 'media', coluna_id: '', pessoal: false,
 };
 
 export default function Atividades() {
@@ -84,14 +84,30 @@ export default function Atividades() {
 
     const onDragEnd = async (result: DropResult) => {
         if (!result.destination) return;
-        const { draggableId, destination } = result;
-        if (destination.droppableId === result.source.droppableId) return;
-        const { error: _moveErr } = await supabase.from('atividades').update({ coluna_id: destination.droppableId }).eq('id', draggableId);
-        // Falha silenciosa ao mover atividade
-        queryClient.invalidateQueries({ queryKey: ['atividades'] });
+        const { draggableId, destination, source } = result;
+        const newColunaId = destination.droppableId;
+        const oldColunaId = source.droppableId;
+        if (newColunaId === oldColunaId) return;
+
+        /* Optimistic update — atualiza estado local imediatamente */
+        queryClient.setQueryData(['atividades', empresa?.id], (old: any[] | undefined) =>
+            (old ?? []).map((a: any) => a.id === draggableId ? { ...a, coluna_id: newColunaId } : a)
+        );
+
+        const { error } = await supabase.from('atividades').update({ coluna_id: newColunaId }).eq('id', draggableId);
+
+        if (error) {
+            /* Reverte em caso de falha */
+            queryClient.setQueryData(['atividades', empresa?.id], (old: any[] | undefined) =>
+                (old ?? []).map((a: any) => a.id === draggableId ? { ...a, coluna_id: oldColunaId } : a)
+            );
+            alert('Erro ao mover atividade. Tente novamente.');
+        }
     };
 
     const isOverdue = (prazo: string) => prazo && new Date(prazo) < new Date();
+
+    const [tooltipPessoal, setTooltipPessoal] = useState(false);
 
     const openNew = () => {
         setEditing(null);
@@ -109,8 +125,8 @@ export default function Atividades() {
             prazo: atv.prazo || '',
             prioridade: atv.prioridade || 'media',
             coluna_id: atv.coluna_id || '',
+            pessoal: atv.pessoal || false,
         });
-        // Parsear responsavel de volta para selectedUsers
         const names = (atv.responsavel || '').split(', ').map((s: string) => s.trim()).filter(Boolean);
         const matchedIds = membros.filter(m => names.includes(m.displayName)).map(m => m.id);
         setSelectedUsers(matchedIds);
@@ -129,6 +145,10 @@ export default function Atividades() {
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!formAtv.titulo || !empresa || colunas.length === 0) return;
+
+        /* Obter uid do usuário autenticado para atividades pessoais */
+        const { data: { user } } = await supabase.auth.getUser();
+
         const payload: any = {
             titulo: formAtv.titulo,
             descricao: formAtv.descricao,
@@ -136,6 +156,8 @@ export default function Atividades() {
             prazo: formAtv.prazo || null,
             prioridade: formAtv.prioridade,
             coluna_id: formAtv.coluna_id || colunas[0].id,
+            pessoal: formAtv.pessoal,
+            criador_id: formAtv.pessoal ? user?.id ?? null : null,
         };
         try {
             if (editing) {
@@ -151,7 +173,6 @@ export default function Atividades() {
             setSelectedUsers([]);
             queryClient.invalidateQueries({ queryKey: ['atividades'] });
         } catch (err) {
-            // Erro tratado na UI
             alert('Falha ao salvar atividade.');
         }
     };
@@ -381,6 +402,29 @@ export default function Atividades() {
                                         ))}
                                     </div>
                                 </div>
+                                {/* Atividade pessoal */}
+                                <div className="flex items-center gap-3 p-3 bg-dark-800/50 rounded-lg">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" checked={formAtv.pessoal}
+                                            onChange={(e) => setFormAtv({ ...formAtv, pessoal: e.target.checked })}
+                                            className="w-4 h-4 rounded border-dark-500 text-axen-500 focus:ring-axen-500/20" />
+                                        <span className="text-sm text-white">Atividade pessoal</span>
+                                    </label>
+                                    <div className="relative">
+                                        <button type="button"
+                                            onMouseEnter={() => setTooltipPessoal(true)}
+                                            onMouseLeave={() => setTooltipPessoal(false)}
+                                            className="text-dark-400 hover:text-axen-400 transition-colors">
+                                            <Info className="w-4 h-4" />
+                                        </button>
+                                        {tooltipPessoal && (
+                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2.5 bg-dark-700 border border-dark-600 rounded-lg text-xs text-dark-200 shadow-xl z-20">
+                                                Ao marcar como atividade pessoal, esta atividade ficará visível apenas para você. Você pode desmarcar esta opção a qualquer momento para torná-la visível para todos os membros da empresa.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
                                 <div className="flex gap-3 pt-2">
                                     {editing && (
                                         <button type="button" onClick={() => setShowDeleteConfirm(editing.id)}

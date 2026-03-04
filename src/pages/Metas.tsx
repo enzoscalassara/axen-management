@@ -16,9 +16,15 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
 };
 
 /** Sub-opções condicionais por tipo de meta */
-const SUBTIPO_OPTIONS: Record<string, string[]> = {
-    financeira: ['Receita Mensal', 'Receita Anual'],
-    clientes: ['Cliente Específico', 'Total de Clientes'],
+const SUBTIPO_OPTIONS: Record<string, { label: string; value: string }[]> = {
+    financeira: [
+        { label: 'Receita Mensal', value: 'receita_mensal' },
+        { label: 'Receita Anual', value: 'receita_anual' },
+    ],
+    clientes: [
+        { label: 'Total de Clientes', value: 'total_clientes' },
+        { label: 'Cliente Específico', value: 'cliente_especifico' },
+    ],
     geral: [],
 };
 
@@ -26,6 +32,8 @@ const defaultForm = {
     titulo: '', descricao: '', valor_alvo: 0, data_inicio: '', data_fim: '',
     responsavel: '', status: 'em_andamento', progresso: 0,
     tipo_meta: '' as string, subtipo: '' as string, concluida: false,
+    cliente_vinculado_id: '' as string, acompanhamento_tipo: '' as string,
+    calculo_automatico: false, acompanhamento_subtipo: '' as string,
 };
 
 export default function Metas() {
@@ -48,6 +56,35 @@ export default function Metas() {
                 .select('*')
                 .eq('empresa_id', empresa!.id)
                 .order('data_fim');
+            if (error) throw error;
+            return data ?? [];
+        },
+        enabled: !!empresa?.id,
+    });
+
+    /** Clientes da empresa para dropdown de meta tipo cliente_especifico */
+    const { data: clientes = [] } = useQuery({
+        queryKey: ['clientes-metas', empresa?.id],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('clientes')
+                .select('id, nome, status')
+                .eq('empresa_id', empresa!.id)
+                .order('nome');
+            if (error) throw error;
+            return data ?? [];
+        },
+        enabled: !!empresa?.id,
+    });
+
+    /** Movimentações para cálculos automáticos */
+    const { data: movimentacoes = [] } = useQuery({
+        queryKey: ['movimentacoes-metas', empresa?.id],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('movimentacoes')
+                .select('tipo, status, valor, data, origem_cliente_id')
+                .eq('empresa_id', empresa!.id);
             if (error) throw error;
             return data ?? [];
         },
@@ -94,6 +131,10 @@ export default function Metas() {
             tipo_meta: meta.tipo_meta || '',
             subtipo: meta.subtipo || '',
             concluida: meta.concluida || false,
+            cliente_vinculado_id: meta.cliente_vinculado_id || '',
+            acompanhamento_tipo: meta.acompanhamento_tipo || '',
+            calculo_automatico: meta.calculo_automatico || false,
+            acompanhamento_subtipo: meta.acompanhamento_subtipo || '',
         });
         const names = (meta.responsavel || '').split(', ').map((s: string) => s.trim()).filter(Boolean);
         setSelectedResponsaveis(membros.filter(m => names.includes(m.displayName)).map(m => m.id));
@@ -108,6 +149,52 @@ export default function Metas() {
             return next;
         });
     };
+
+    /** Verifica se o tipo/subtipo é elegível para cálculo automático */
+    const isAutoCalcEligible = (tipoMeta: string, subtipo: string, acompTipo?: string, acompSub?: string) => {
+        if (tipoMeta === 'financeira' && (subtipo === 'receita_mensal' || subtipo === 'receita_anual')) return true;
+        if (tipoMeta === 'clientes' && subtipo === 'total_clientes') return true;
+        if (tipoMeta === 'clientes' && subtipo === 'cliente_especifico' && acompTipo === 'financeira'
+            && (acompSub === 'receita_mensal' || acompSub === 'receita_anual')) return true;
+        return false;
+    };
+
+    /** Calcula progresso automático para uma meta */
+    const calcularProgressoAuto = useCallback((meta: any): number => {
+        const alvo = Number(meta.valor_alvo || 0);
+        if (alvo <= 0) return 0;
+        const now = new Date();
+
+        if (meta.tipo_meta === 'clientes' && meta.subtipo === 'total_clientes') {
+            const ativos = clientes.filter((c: any) => c.status === 'ativo').length;
+            return Math.min(100, parseFloat(((ativos / alvo) * 100).toFixed(1)));
+        }
+
+        const tipoCalc = meta.tipo_meta === 'clientes' && meta.subtipo === 'cliente_especifico'
+            ? meta.acompanhamento_subtipo || meta.acompanhamento_tipo
+            : meta.subtipo;
+        const clienteFilter = meta.tipo_meta === 'clientes' && meta.subtipo === 'cliente_especifico'
+            ? meta.cliente_vinculado_id : null;
+
+        const movsEntrada = movimentacoes.filter((m: any) =>
+            m.tipo === 'entrada' && m.status === 'confirmado'
+            && (!clienteFilter || m.origem_cliente_id === clienteFilter)
+        );
+
+        if (tipoCalc === 'receita_mensal') {
+            const receitaMes = movsEntrada
+                .filter((m: any) => { const d = new Date(m.data); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
+                .reduce((s: number, m: any) => s + Number(m.valor), 0);
+            return Math.min(100, parseFloat(((receitaMes / alvo) * 100).toFixed(1)));
+        }
+        if (tipoCalc === 'receita_anual') {
+            const receitaAno = movsEntrada
+                .filter((m: any) => new Date(m.data).getFullYear() === now.getFullYear())
+                .reduce((s: number, m: any) => s + Number(m.valor), 0);
+            return Math.min(100, parseFloat(((receitaAno / alvo) * 100).toFixed(1)));
+        }
+        return meta.progresso || 0;
+    }, [clientes, movimentacoes]);
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -124,6 +211,9 @@ export default function Metas() {
             tipo_meta: formMeta.tipo_meta || null,
             subtipo: formMeta.subtipo || null,
             concluida: formMeta.concluida,
+            cliente_vinculado_id: formMeta.cliente_vinculado_id || null,
+            acompanhamento_tipo: formMeta.acompanhamento_tipo || null,
+            calculo_automatico: formMeta.calculo_automatico,
         };
         try {
             if (editing) {
@@ -138,7 +228,6 @@ export default function Metas() {
             setFormMeta(defaultForm);
             queryClient.invalidateQueries({ queryKey: ['metas'] });
         } catch (err) {
-            // Erro tratado na UI
             alert('Falha ao salvar meta.');
         }
     };
@@ -206,6 +295,11 @@ export default function Metas() {
                 {metasFiltradas.map((meta: any, i: number) => {
                     const statusStyle = STATUS_LABELS[meta.status] || STATUS_LABELS.em_andamento;
                     const isOverdue = meta.data_fim && new Date(meta.data_fim) < new Date() && meta.status === 'em_andamento';
+                    const progressoDisplay = meta.calculo_automatico ? calcularProgressoAuto(meta) : (meta.progresso || 0);
+
+                    /* Info para total_clientes */
+                    const isTotalClientes = meta.tipo_meta === 'clientes' && meta.subtipo === 'total_clientes';
+                    const clientesAtivos = isTotalClientes ? clientes.filter((c: any) => c.status === 'ativo').length : 0;
 
                     return (
                         <motion.div key={meta.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
@@ -229,7 +323,9 @@ export default function Metas() {
                                     <span className="text-[10px] px-2 py-0.5 bg-dark-700 text-dark-200 rounded font-medium uppercase tracking-wider">
                                         {meta.tipo_meta}{meta.subtipo ? ` · ${meta.subtipo}` : ''}
                                     </span>
-                                    {meta.valor_alvo > 0 && (
+                                    {isTotalClientes && meta.valor_alvo > 0 ? (
+                                        <span className="text-xs text-axen-400 font-semibold">{clientesAtivos} / {Math.round(meta.valor_alvo)} clientes ativos</span>
+                                    ) : meta.valor_alvo > 0 && (
                                         <span className="text-xs text-axen-400 font-semibold">{formatCurrency(meta.valor_alvo)}</span>
                                     )}
                                 </div>
@@ -237,12 +333,12 @@ export default function Metas() {
 
                             <div className="mb-3">
                                 <div className="flex items-center justify-between mb-1.5">
-                                    <span className="text-xs text-dark-300">Progresso</span>
-                                    <span className="text-xs text-axen-400 font-semibold">{meta.progresso || 0}%</span>
+                                    <span className="text-xs text-dark-300">Progresso{meta.calculo_automatico ? ' (auto)' : ''}</span>
+                                    <span className="text-xs text-axen-400 font-semibold">{progressoDisplay}%</span>
                                 </div>
                                 <div className="w-full h-2 bg-dark-600 rounded-full overflow-hidden">
-                                    <motion.div initial={{ width: 0 }} animate={{ width: `${meta.progresso || 0}%` }} transition={{ duration: 0.8, ease: 'easeOut' }}
-                                        className={`h-full rounded-full ${meta.progresso >= 75 ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : meta.progresso >= 40 ? 'bg-gradient-to-r from-axen-500 to-axen-400' : 'bg-gradient-to-r from-amber-500 to-amber-400'}`} />
+                                    <motion.div initial={{ width: 0 }} animate={{ width: `${progressoDisplay}%` }} transition={{ duration: 0.8, ease: 'easeOut' }}
+                                        className={`h-full rounded-full ${progressoDisplay >= 75 ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : progressoDisplay >= 40 ? 'bg-gradient-to-r from-axen-500 to-axen-400' : 'bg-gradient-to-r from-amber-500 to-amber-400'}`} />
                                 </div>
                             </div>
 
@@ -294,29 +390,89 @@ export default function Metas() {
                                 {formMeta.tipo_meta && SUBTIPO_OPTIONS[formMeta.tipo_meta]?.length > 0 && (
                                     <div>
                                         <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Subtipo</label>
-                                        <select value={formMeta.subtipo} onChange={(e) => setFormMeta({ ...formMeta, subtipo: e.target.value })} className="w-full text-sm">
+                                        <select value={formMeta.subtipo} onChange={(e) => setFormMeta({ ...formMeta, subtipo: e.target.value, cliente_vinculado_id: '', acompanhamento_tipo: '', acompanhamento_subtipo: '' })} className="w-full text-sm">
                                             <option value="">Selecione</option>
-                                            {SUBTIPO_OPTIONS[formMeta.tipo_meta].map(s => <option key={s} value={s}>{s}</option>)}
+                                            {SUBTIPO_OPTIONS[formMeta.tipo_meta].map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                                         </select>
                                     </div>
                                 )}
 
-                                {/* Valor Alvo — ocultado para tipo Geral */}
-                                {formMeta.tipo_meta !== 'geral' && (
+                                {/* Cliente Específico — dropdown de cliente */}
+                                {formMeta.tipo_meta === 'clientes' && formMeta.subtipo === 'cliente_especifico' && (
+                                    <>
+                                        <div>
+                                            <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Cliente Vinculado</label>
+                                            <select value={formMeta.cliente_vinculado_id} onChange={(e) => setFormMeta({ ...formMeta, cliente_vinculado_id: e.target.value })} className="w-full text-sm">
+                                                <option value="">Selecione um cliente</option>
+                                                {clientes.map((c: any) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Tipo de Acompanhamento</label>
+                                            <div className="flex gap-4">
+                                                {(['geral', 'financeira'] as const).map(tipo => (
+                                                    <label key={tipo} className="flex items-center gap-2 cursor-pointer">
+                                                        <input type="radio" name="acompanhamento" value={tipo}
+                                                            checked={formMeta.acompanhamento_tipo === tipo}
+                                                            onChange={() => setFormMeta({ ...formMeta, acompanhamento_tipo: tipo, acompanhamento_subtipo: '' })}
+                                                            className="w-3.5 h-3.5 text-axen-500 focus:ring-axen-500/20" />
+                                                        <span className="text-sm text-dark-200 capitalize">{tipo === 'geral' ? 'Geral' : 'Financeira'}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        {formMeta.acompanhamento_tipo === 'financeira' && (
+                                            <div>
+                                                <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Período</label>
+                                                <select value={formMeta.acompanhamento_subtipo} onChange={(e) => setFormMeta({ ...formMeta, acompanhamento_subtipo: e.target.value })} className="w-full text-sm">
+                                                    <option value="">Selecione</option>
+                                                    <option value="receita_mensal">Receita Mensal</option>
+                                                    <option value="receita_anual">Receita Anual</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {/* Valor Alvo — ocultado para tipo Geral e para cliente_especifico com acomp. geral */}
+                                {formMeta.tipo_meta !== 'geral' && !(formMeta.tipo_meta === 'clientes' && formMeta.subtipo === 'cliente_especifico' && formMeta.acompanhamento_tipo === 'geral') && (
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Valor Alvo (R$)</label>
-                                            <input type="text" placeholder="0,00"
-                                                value={formatCurrencyInput(formMeta.valor_alvo || 0)}
-                                                onChange={(e) => setFormMeta({ ...formMeta, valor_alvo: parseCurrencyToNumber(e.target.value) })}
-                                                className="w-full text-sm" />
+                                            <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">
+                                                {formMeta.tipo_meta === 'clientes' && formMeta.subtipo === 'total_clientes'
+                                                    ? 'Meta de clientes ativos'
+                                                    : 'Valor Alvo (R$)'}
+                                            </label>
+                                            {formMeta.tipo_meta === 'clientes' && formMeta.subtipo === 'total_clientes' ? (
+                                                <input type="number" min="0" placeholder="0"
+                                                    value={formMeta.valor_alvo || ''}
+                                                    onChange={(e) => setFormMeta({ ...formMeta, valor_alvo: Number(e.target.value) })}
+                                                    className="w-full text-sm" />
+                                            ) : (
+                                                <input type="text" placeholder="0,00"
+                                                    value={formatCurrencyInput(formMeta.valor_alvo || 0)}
+                                                    onChange={(e) => setFormMeta({ ...formMeta, valor_alvo: parseCurrencyToNumber(e.target.value) })}
+                                                    className="w-full text-sm" />
+                                            )}
                                         </div>
                                         <div>
                                             <label className="block text-xs font-medium text-dark-100 mb-1 uppercase tracking-wider">Progresso (%)</label>
                                             <input type="number" min="0" max="100" value={formMeta.progresso}
                                                 onChange={(e) => setFormMeta({ ...formMeta, progresso: Number(e.target.value) })}
-                                                className="w-full text-sm" />
+                                                className="w-full text-sm" readOnly={formMeta.calculo_automatico} />
                                         </div>
+                                    </div>
+                                )}
+
+                                {/* Checkbox cálculo automático */}
+                                {isAutoCalcEligible(formMeta.tipo_meta, formMeta.subtipo, formMeta.acompanhamento_tipo, formMeta.acompanhamento_subtipo) && (
+                                    <div className="flex items-center gap-3 p-3 bg-dark-800/50 rounded-lg">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input type="checkbox" checked={formMeta.calculo_automatico}
+                                                onChange={(e) => setFormMeta({ ...formMeta, calculo_automatico: e.target.checked })}
+                                                className="w-4 h-4 rounded border-dark-500 text-axen-500 focus:ring-axen-500/20" />
+                                            <span className="text-sm text-white">Calcular progresso automaticamente</span>
+                                        </label>
                                     </div>
                                 )}
 
