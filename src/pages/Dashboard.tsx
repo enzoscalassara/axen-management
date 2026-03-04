@@ -87,6 +87,15 @@ export default function Dashboard() {
 
             const now = new Date();
 
+            /** Receita confirmada do mês atual */
+            const receitaMesAtual = movs
+                .filter(m => m.tipo === 'entrada' && m.status === 'confirmado')
+                .filter(m => {
+                    const d = new Date(m.data);
+                    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                })
+                .reduce((s, m) => s + Number(m.valor), 0);
+
             /** Receita confirmada do mês anterior */
             const mesAnterior = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             const receitaMesAnterior = movs
@@ -144,7 +153,7 @@ export default function Dashboard() {
 
             return {
                 saldo_atual: entradas - saidas,
-                receita_mes: entradas,
+                receita_mes: receitaMesAtual,
                 receita_mes_anterior: receitaMesAnterior,
                 meta_mes: metaAlvo,
                 meta_mensal_alvo: metaMensalAlvo,
