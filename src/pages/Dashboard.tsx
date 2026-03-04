@@ -57,6 +57,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 }
 
 import { supabase } from '../services/supabaseClient';
+import { calcularProgressoAuto } from '../utils/metasUtils';
 
 export default function Dashboard() {
     const { empresa } = useEmpresa();
@@ -125,31 +126,12 @@ export default function Dashboard() {
                 return new Date(a.prazo) < now;
             }).length;
 
-            // Metas recentes — cálculo automático de progresso para metas financeiras
-            const receitaAnoConfirmada = movs
-                .filter(m => m.tipo === 'entrada' && m.status === 'confirmado' && new Date(m.data).getFullYear() === now.getFullYear())
-                .reduce((s, m) => s + Number(m.valor), 0);
-            /** Receita do mês atual: confirmado + previsto */
-            const receitaMesAtualTotal = movs
-                .filter(m => m.tipo === 'entrada')
-                .filter(m => { const d = new Date(m.data); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
-                .reduce((s, m) => s + Number(m.valor), 0);
-
+            // Metas recentes — cálculo automático usando utilitário
             const metas_recentes = metas
                 .filter(m => m.status === 'em_andamento')
                 .slice(0, 5)
                 .map(m => {
-                    let progresso = m.progresso || 0;
-                    const alvo = Number(m.valor_alvo || 0);
-                    if (m.tipo_meta === 'financeira' && m.subtipo === 'receita_mensal' && alvo > 0) {
-                        progresso = parseFloat(((receitaMesAtualTotal / alvo) * 100).toFixed(1));
-                    } else if (m.tipo_meta === 'financeira' && m.subtipo === 'receita_anual' && alvo > 0) {
-                        progresso = parseFloat(((receitaAnoConfirmada / alvo) * 100).toFixed(1));
-                    } else {
-                        const tipo = (m.tipo || '').toLowerCase();
-                        if (alvo > 0 && tipo === 'receita_mensal') progresso = parseFloat(((receitaMesAtualTotal / alvo) * 100).toFixed(1));
-                        else if (alvo > 0 && tipo === 'receita_anual') progresso = parseFloat(((receitaAnoConfirmada / alvo) * 100).toFixed(1));
-                    }
+                    const progresso = calcularProgressoAuto(m, clientes, movs);
                     return { id: m.id, titulo: m.titulo || 'Meta', progresso, responsavel: m.responsavel || '-', prazo: m.prazo || now.toISOString() };
                 });
 
@@ -169,7 +151,7 @@ export default function Dashboard() {
                 clientes_ativos: clientes.filter(c => c.status === 'ativo').length,
                 atividades_pendentes: atvs.filter(a => a.status !== 'concluida').length,
                 atividades_atrasadas,
-                metas_progresso: Math.round(metas.reduce((s, m) => s + (m.progresso || 0), 0) / (metas.length || 1)),
+                metas_progresso: Math.round(metas.reduce((s, m) => s + calcularProgressoAuto(m, clientes, movs), 0) / (metas.length || 1)),
                 metas_count: metas.length,
                 receita_por_mes: fluxoMensal,
                 despesas_por_categoria,
@@ -219,7 +201,8 @@ export default function Dashboard() {
         );
     }
 
-    const percentMeta = (data.meta_mensal_alvo || 0) > 0 ? parseFloat(((data.receita_mes_anterior || 0) / data.meta_mensal_alvo * 100).toFixed(1)) : 0;
+    // A fórmula da porcentagem usa a Receita Consolidada do Mês ATUAL sobre o alvo mensal:
+    const percentMeta = (data.meta_mensal_alvo || 0) > 0 ? parseFloat(((data.receita_mes || 0) / data.meta_mensal_alvo * 100).toFixed(1)) : 0;
 
     const kpis = [
         {
@@ -232,12 +215,12 @@ export default function Dashboard() {
             trendUp: true,
         },
         {
-            label: 'Receita Confirmada Mês Anterior',
-            value: formatCurrency(data.receita_mes_anterior),
+            label: 'Receita Confirmada (Mês Atual)',
+            value: formatCurrency(data.receita_mes),
             icon: TrendingUp,
             color: 'text-axen-400',
             bg: 'bg-axen-500/10',
-            sub: `${percentMeta}% da meta geral`,
+            sub: `${percentMeta}% da meta mensal`,
         },
         {
             label: 'Clientes Ativos',

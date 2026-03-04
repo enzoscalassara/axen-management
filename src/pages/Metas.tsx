@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../services/supabaseClient';
 import { useMembrosDaEmpresa } from '../hooks/useMembrosDaEmpresa';
 import { formatCurrencyInput, parseCurrencyToNumber, formatCurrency } from '../utils/formatters';
+import { calcularProgressoAuto } from '../utils/metasUtils';
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
     em_andamento: { label: 'Em Andamento', color: 'text-axen-400', bg: 'bg-axen-500/10' },
@@ -107,8 +108,8 @@ export default function Metas() {
         total: metas.length,
         andamento: metas.filter((m: any) => m.status === 'em_andamento').length,
         concluidas: metas.filter((m: any) => m.status === 'concluida').length,
-        progressoMedio: Math.round(metas.reduce((s: number, m: any) => s + (m.progresso || 0), 0) / (metas.length || 1)),
-    }), [metas]);
+        progressoMedio: Math.round(metas.reduce((s: number, m: any) => s + calcularProgressoAuto(m, clientes, movimentacoes), 0) / (metas.length || 1)),
+    }), [metas, clientes, movimentacoes]);
 
     const openNew = () => {
         setEditing(null);
@@ -159,42 +160,7 @@ export default function Metas() {
         return false;
     };
 
-    /** Calcula progresso automático para uma meta */
-    const calcularProgressoAuto = useCallback((meta: any): number => {
-        const alvo = Number(meta.valor_alvo || 0);
-        if (alvo <= 0) return 0;
-        const now = new Date();
 
-        if (meta.tipo_meta === 'clientes' && meta.subtipo === 'total_clientes') {
-            const ativos = clientes.filter((c: any) => c.status === 'ativo').length;
-            return Math.min(100, parseFloat(((ativos / alvo) * 100).toFixed(1)));
-        }
-
-        const tipoCalc = meta.tipo_meta === 'clientes' && meta.subtipo === 'cliente_especifico'
-            ? meta.acompanhamento_subtipo || meta.acompanhamento_tipo
-            : meta.subtipo;
-        const clienteFilter = meta.tipo_meta === 'clientes' && meta.subtipo === 'cliente_especifico'
-            ? meta.cliente_vinculado_id : null;
-
-        const movsEntrada = movimentacoes.filter((m: any) =>
-            m.tipo === 'entrada' && m.status === 'confirmado'
-            && (!clienteFilter || m.origem_cliente_id === clienteFilter)
-        );
-
-        if (tipoCalc === 'receita_mensal') {
-            const receitaMes = movsEntrada
-                .filter((m: any) => { const d = new Date(m.data); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); })
-                .reduce((s: number, m: any) => s + Number(m.valor), 0);
-            return Math.min(100, parseFloat(((receitaMes / alvo) * 100).toFixed(1)));
-        }
-        if (tipoCalc === 'receita_anual') {
-            const receitaAno = movsEntrada
-                .filter((m: any) => new Date(m.data).getFullYear() === now.getFullYear())
-                .reduce((s: number, m: any) => s + Number(m.valor), 0);
-            return Math.min(100, parseFloat(((receitaAno / alvo) * 100).toFixed(1)));
-        }
-        return meta.progresso || 0;
-    }, [clientes, movimentacoes]);
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -295,7 +261,7 @@ export default function Metas() {
                 {metasFiltradas.map((meta: any, i: number) => {
                     const statusStyle = STATUS_LABELS[meta.status] || STATUS_LABELS.em_andamento;
                     const isOverdue = meta.data_fim && new Date(meta.data_fim) < new Date() && meta.status === 'em_andamento';
-                    const progressoDisplay = meta.calculo_automatico ? calcularProgressoAuto(meta) : (meta.progresso || 0);
+                    const progressoDisplay = calcularProgressoAuto(meta, clientes, movimentacoes);
 
                     /* Info para total_clientes */
                     const isTotalClientes = meta.tipo_meta === 'clientes' && meta.subtipo === 'total_clientes';
