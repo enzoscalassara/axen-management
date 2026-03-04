@@ -168,15 +168,19 @@ export default function Financeiro() {
     const movsFiltradas = useMemo(() => {
         let filtered = movimentacoes;
         if (filtroCategoria !== 'todos') filtered = filtered.filter((m: any) => m.categoria === filtroCategoria);
-        /* Filtro Data Prevista: por ano sozinho ou ano+mês */
-        if (filtroDataPrevAno) {
-            const prefix = filtroDataPrevMes ? `${filtroDataPrevAno}-${filtroDataPrevMes}` : filtroDataPrevAno;
+        /* Filtro Data Prevista: ano+mês → estrito; só ano → inclui itens sem data */
+        if (filtroDataPrevAno && filtroDataPrevMes) {
+            const prefix = `${filtroDataPrevAno}-${filtroDataPrevMes}`;
             filtered = filtered.filter((m: any) => m.data_prevista && m.data_prevista.startsWith(prefix));
+        } else if (filtroDataPrevAno) {
+            filtered = filtered.filter((m: any) => !m.data_prevista || m.data_prevista.startsWith(filtroDataPrevAno));
         }
         /* Filtro Data Realizada: mesma lógica */
-        if (filtroDataRealAno) {
-            const prefix = filtroDataRealMes ? `${filtroDataRealAno}-${filtroDataRealMes}` : filtroDataRealAno;
+        if (filtroDataRealAno && filtroDataRealMes) {
+            const prefix = `${filtroDataRealAno}-${filtroDataRealMes}`;
             filtered = filtered.filter((m: any) => m.data_realizada && m.data_realizada.startsWith(prefix));
+        } else if (filtroDataRealAno) {
+            filtered = filtered.filter((m: any) => !m.data_realizada || m.data_realizada.startsWith(filtroDataRealAno));
         }
         if (filtroClienteFornecedor) {
             filtered = filtered.filter((m: any) =>
