@@ -105,7 +105,16 @@ export default function Atividades() {
         }
     };
 
-    const isOverdue = (prazo: string) => prazo && new Date(prazo) < new Date();
+    /** Parseia data YYYY-MM-DD como data local (evita offset UTC que subtrai 1 dia em BRT) */
+    const parseLocalDate = (dateStr: string) => new Date(dateStr + 'T00:00:00');
+
+    const isOverdue = (prazo: string) => {
+        if (!prazo) return false;
+        const prazoDate = parseLocalDate(prazo);
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        return prazoDate < hoje;
+    };
 
     const [tooltipPessoal, setTooltipPessoal] = useState(false);
 
@@ -286,7 +295,7 @@ export default function Atividades() {
                                                                         <div className="flex items-center gap-1">
                                                                             <Calendar className="w-3 h-3" />
                                                                             <span className={overdue ? 'text-red-400' : ''}>
-                                                                                {atv.prazo ? new Date(atv.prazo).toLocaleDateString('pt-BR') : 'Sem prazo'}
+                                                                                {atv.prazo ? parseLocalDate(atv.prazo).toLocaleDateString('pt-BR') : 'Sem prazo'}
                                                                             </span>
                                                                         </div>
                                                                     </div>
@@ -326,7 +335,7 @@ export default function Atividades() {
                                         <td className="py-3 px-4">
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${prio.bg} ${prio.color}`}>{prio.label}</span>
                                         </td>
-                                        <td className="py-3 px-4 text-sm text-dark-200">{atv.prazo ? new Date(atv.prazo).toLocaleDateString('pt-BR') : '-'}</td>
+                                        <td className="py-3 px-4 text-sm text-dark-200">{atv.prazo ? parseLocalDate(atv.prazo).toLocaleDateString('pt-BR') : '-'}</td>
                                         <td className="py-3 px-4 text-right">
                                             <button onClick={() => openEdit(atv)} className="p-1.5 rounded-lg hover:bg-axen-500/10 text-dark-400 hover:text-axen-400 opacity-0 group-hover:opacity-100 transition-all"><Pencil className="w-4 h-4" /></button>
                                         </td>

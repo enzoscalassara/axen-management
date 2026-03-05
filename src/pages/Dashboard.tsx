@@ -132,7 +132,10 @@ export default function Dashboard() {
             const atividades_atrasadas = atvs.filter(a => {
                 if (a.status === 'concluida') return false;
                 if (!a.prazo) return false;
-                return new Date(a.prazo) < now;
+                const prazoDate = new Date(a.prazo + 'T00:00:00');
+                const hoje = new Date();
+                hoje.setHours(0, 0, 0, 0);
+                return prazoDate < hoje;
             }).length;
 
             // Metas recentes — cálculo automático usando utilitário
@@ -415,7 +418,7 @@ export default function Dashboard() {
                                 <div className="flex items-center justify-between mt-2">
                                     <span className="text-[11px] text-dark-300">{meta.responsavel}</span>
                                     <span className="text-[11px] text-dark-300">
-                                        Prazo: {new Date(meta.prazo).toLocaleDateString('pt-BR')}
+                                        Prazo: {new Date(meta.prazo + 'T00:00:00').toLocaleDateString('pt-BR')}
                                     </span>
                                 </div>
                             </div>
@@ -457,7 +460,7 @@ export default function Dashboard() {
                                         <div>
                                             <p className="text-sm text-white">{mov.descricao}</p>
                                             <p className="text-[11px] text-dark-300">
-                                                {new Date(mov.data).toLocaleDateString('pt-BR')} · {mov.categoria}
+                                                {new Date(mov.data + 'T00:00:00').toLocaleDateString('pt-BR')} · {mov.categoria}
                                             </p>
                                         </div>
                                     </div>

@@ -81,9 +81,11 @@ export function getMockDashboard(empresaId: string): DashboardResumo {
     const entradas = movs.filter((m) => m.tipo === 'entrada' && m.status === 'confirmado').reduce((s, m) => s + m.valor, 0);
     const saidas = movs.filter((m) => m.tipo === 'saida' && m.status === 'confirmado').reduce((s, m) => s + m.valor, 0);
 
-    const atrasadas = atividades.filter((a) => new Date(a.prazo) < new Date() && a.coluna_id !== 'col-4' && a.coluna_id !== 'col-8');
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const atrasadas = atividades.filter((a) => new Date(a.prazo + 'T00:00:00') < hoje && a.coluna_id !== 'col-4' && a.coluna_id !== 'col-8');
     const proximas = atividades.filter((a) => {
-        const diff = (new Date(a.prazo).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+        const diff = (new Date(a.prazo + 'T00:00:00').getTime() - Date.now()) / (1000 * 60 * 60 * 24);
         return diff >= 0 && diff <= 3;
     });
 
